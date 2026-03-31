@@ -1,4 +1,1 @@
-# System packages installed before Python dependencies on Streamlit Cloud
-# Currently empty — all FPL Optimizer dependencies are pure Python
-# Add system packages here if needed, e.g.:
-# libgomp1
+
