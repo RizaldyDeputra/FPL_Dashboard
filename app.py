@@ -1,7 +1,6 @@
 """
 FPL AI Optimizer Dashboard  ·  v3 – Live Pipeline Edition
 ===========================================================
-streamlit run app.py
 
 Architecture
 ------------
@@ -12,12 +11,6 @@ Architecture
   optimizer/team_selector.py → Two-phase MILP squad builder
   update_data.py      → CLI automation script (cron / APScheduler)
 
-Live-data flow
---------------
-  1. Sidebar "Refresh" button → FPLAPIClient.fetch_and_save()
-  2. Cache key = data file mtime → st.cache_data auto-invalidates
-  3. Model cache (pickle) → retrain only if data hash changed or > 24 h
-  4. Dashboard reads metadata (last fetch, current GW, deadline)
 """
 
 import json, logging, sys, threading
@@ -627,11 +620,12 @@ with tab_insights:
         for rank, (_, p) in enumerate(cap_picks.iterrows(), 1):
             ppm = p.get("pts_per_90", 0)
             stars = "⭐⭐⭐" if ppm > 4 else ("⭐⭐" if ppm > 2.5 else "⭐")
+            pos = p["position"]
             st.markdown(
                 f"<div class='vc-card'>"
                 f"<div style='display:flex;align-items:center;gap:.5rem'>"
                 f"<span style='font-size:1.05rem'>{medals[rank-1]}</span>"
-                f"<span class='tag tag-{p[\"position\"]}'>{p['position']}</span>"
+                f"<span class='tag tag-{pos}'>{pos}</span>"
                 f"<strong>{p['player_name']}</strong>"
                 f"<span style='margin-left:auto;color:#00e87a;font-weight:700'>{p['predicted_points']:.1f} pts</span>"
                 f"</div>"
@@ -652,11 +646,12 @@ with tab_insights:
             vpp = p["predicted_points"] / max(p["cost"], 1)
             bar = min(int(vpp / max_vpp * 100), 100)
             trend = "<span class='trending-up'>▲</span>" if p.get("transfer_momentum", 0) > 0.1 else ""
+            pos = p["position"]
             st.markdown(
                 f"<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);"
                 f"border-radius:8px;padding:.48rem .78rem;margin-bottom:.3rem'>"
                 f"<div style='display:flex;align-items:center;gap:.4rem'>"
-                f"<span class='tag tag-{p[\"position\"]}'>{p['position']}</span>"
+                f"<span class='tag tag-{pos}'>{pos}</span>"
                 f"<span style='flex:1;font-size:.8rem;font-weight:500'>{p['player_name']}{' ' + trend if trend else ''}</span>"
                 f"<span style='color:#ffd700;font-weight:700;font-size:.74rem'>{vpp:.2f} pts/£M</span>"
                 f"</div>"
@@ -677,10 +672,11 @@ with tab_insights:
         )
         for _, p in risky_picks(df_filtered, top_n=5).iterrows():
             risk = "🔴 High risk" if p.get("pts_per_90", 0) < 3 else "🟡 Medium risk"
+            pos = p["position"]
             st.markdown(
                 f"<div class='diff-card'>"
                 f"<div style='display:flex;align-items:center;gap:.4rem'>"
-                f"<span class='tag tag-{p[\"position\"]}'>{p['position']}</span>"
+                f"<span class='tag tag-{pos}'>{pos}</span>"
                 f"<span style='flex:1;font-size:.8rem;font-weight:500'>{p['player_name']}</span>"
                 f"<span style='font-size:.7rem'>{risk}</span>"
                 f"</div>"
@@ -737,7 +733,7 @@ with tab_top:
         st.markdown(
             f"<div class='player-row' style='flex-direction:column;align-items:stretch;gap:0'>"
             f"<div style='display:flex;align-items:center;gap:.4rem'>"
-            f"<span class='tag tag-{p[\"position\"]}'>{p['position']}</span>"
+            f"<span class='tag tag-{p['position']}'>{p['position']}</span>"
             f"<span style='flex:1;font-weight:500;font-size:.82rem'>{p['player_name']}</span>"
             f"{inj_tag}{sq_tag}{mom_arr}"
             f"<span style='color:#00e87a;font-weight:700;font-size:.82rem;margin-left:.2rem'>{p['predicted_points']:.1f} pts</span>"
@@ -745,7 +741,7 @@ with tab_top:
             f"</div>"
             f"<div style='display:flex;align-items:center;gap:.5rem;margin-top:.3rem'>"
             f"<div style='flex:1;height:4px;background:rgba(255,255,255,.08);border-radius:2px'>"
-            f"<div style='width:{bw}%;height:100%;background:{POS_COLORS[p['position']]};border-radius:2px;opacity:.75'></div></div>"
+            f"<div style='width:{bw}%;height:100%;background:{POS_COLORS.get(p['position'], '#aaa')};border-radius:2px;opacity:.75'></div></div>"
             f"<span style='font-size:.67rem;color:rgba(255,255,255,.28)'>"
             f"G:{int(p.get('goals_scored',0))} A:{int(p.get('assists',0))} · "
             f"{p.get('selected_by_percent',0):.1f}% owned · "
@@ -786,7 +782,7 @@ with tab_diff:
         st.markdown(
             f"<div class='diff-card'>"
             f"<div style='display:flex;align-items:center;gap:.5rem'>"
-            f"<span class='tag tag-{p[\"position\"]}'>{p['position']}</span>"
+            f"<span class='tag tag-{p['position']}'>{p['position']}</span>"
             f"<span style='flex:1;font-size:.82rem;font-weight:500'>{p['player_name']}</span>"
             f"{sq_tag}{mom_arr}"
             f"<span style='color:#00e87a;font-weight:700'>{p['predicted_points']:.1f} pts</span>"
