@@ -1,6 +1,7 @@
 """
 FPL AI Optimizer Dashboard  ·  v3 – Live Pipeline Edition
 ===========================================================
+streamlit run app.py
 
 Architecture
 ------------
@@ -393,7 +394,7 @@ summary = result["summary"]
 # ─────────────────────────────────────────────────────────────────────────────
 src_icon = "🟢" if not status["is_stale"] and status["fetched_at"] else "🟡"
 st.markdown(
-    f"<h1 style='text-align:center;color:#00e87a;margin-bottom:3px'>FPL AI OPTIMIZER</h1>"
+    f"<h1 style='text-align:center;color:#00e87a;margin-bottom:3px'>FPL Helper Dashboard</h1>"
     f"<p style='text-align:center;color:rgba(255,255,255,.35);font-size:.78rem;margin-top:0'>"
     f"{gw_label} &nbsp;·&nbsp; {src_icon} {status['data_source']} &nbsp;·&nbsp; "
     f"Updated {status['age_str']} &nbsp;·&nbsp; {len(df_filtered)} players</p>",
@@ -507,9 +508,9 @@ with tab_squad:
 
             # Bench section
             ax.add_patch(patches.FancyBboxPatch((2, -42), 96, 36,
-                boxstyle="round,pad=1", fc="rgba(0,0,0,.38)", ec="rgba(255,255,255,.18)", lw=.8, zorder=3))
+                boxstyle="round,pad=1", fc=(0, 0, 0, .38), ec=(1, 1, 1, .18), lw=.8, zorder=3))
             ax.text(50, -9, "BENCH", ha="center", va="top",
-                    fontsize=6, color="rgba(255,255,255,.38)", fontweight="600", zorder=4)
+                    fontsize=6, color=(1, 1, 1, .38), fontweight="600", zorder=4)
 
             BR = 13; by = -26
             for x, (_, bp) in zip(np.linspace(14, 86, 4), bench_df.iterrows()):
@@ -521,7 +522,7 @@ with tab_squad:
                 ax.text(x, by, init, ha="center", va="center",
                         fontsize=5.5, fontweight="bold", color="#0d1a0d", zorder=6)
                 ax.text(x, by - BR - 4, bp["player_name"].split()[-1][:10],
-                        ha="center", va="top", fontsize=4.8, color="rgba(255,255,255,.55)", zorder=6)
+                        ha="center", va="top", fontsize=4.8, color=(1, 1, 1, .55), zorder=6)
                 ax.text(x, by + BR + 4, f"{bp['predicted_points']:.1f}",
                         ha="center", va="bottom", fontsize=4.8, color=c, fontweight="bold", zorder=6)
 
