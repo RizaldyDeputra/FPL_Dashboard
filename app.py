@@ -1,17 +1,6 @@
 """
 FPL AI Optimizer Dashboard  ·  v3 – Live Pipeline Edition
 ===========================================================
-streamlit run app.py
-
-Architecture
-------------
-  data/fpl_api.py     → Live FPL API client (bootstrap-static + fixtures)
-  data/loader.py      → Smart loader (live CSV first, static fallback)
-  models/predictor.py → Gradient Boosting + Random Forest models
-  models/model_store.py → Pickle cache (retrain only when data changes)
-  optimizer/team_selector.py → Two-phase MILP squad builder
-  update_data.py      → CLI automation script (cron / APScheduler)
-
 """
 
 import json, logging, sys, threading
@@ -42,7 +31,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("app")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Cloud startup — ensure data is available before the app renders
+# Cloud startup 
 # Runs once per container lifecycle; silently passes if data already exists.
 # ─────────────────────────────────────────────────────────────────────────────
 try:
@@ -68,6 +57,38 @@ st.set_page_config(
 
 DATA_STALE_HOURS = 6.0
 POS_COLORS = {"GK": "#f8d100", "DEF": "#00e87a", "MID": "#01faf9", "FWD": "#ff4d6d"}
+POS_BORDER = {"GK": "#f8d100", "DEF": "#00e87a", "MID": "#01faf9", "FWD": "#ff4d6d"}
+
+# Known FPL player IDs for image lookup (extended map for common players)
+PLAYER_ID_MAP = {
+    "Raya": 169187, "Flekken": 241978, "Roefs": 493237, "Trippier": 80680, "Pedro Porro": 241568,
+    "Gabriel": 148225, "Timber": 493260, "Saliba": 223340, "White": 204480,
+    "Van Dijk": 97032, "Robertson": 122798, "Tarkowski": 85971, "Mykolenko": 463916,
+    "Guéhi": 223094, "Pedro": 241568, "Senesi": 464035, "Van Hecke": 464034,
+    "Haaland": 447,  "Watkins": 216238, "Isak": 224005, "Bowen": 219847,
+    "Thiago": 464100, "Wood": 60826,
+    "Salah": 118748, "Saka": 223085, "Palmer": 244723, "Mbeumo": 195473,
+    "Fernandes": 6021, "Rice": 184341, "Semenyo": 464041, "Rogers": 464043,
+    "Wilson": 57892, "Anderson": 238718, "Garner": 444145,
+    "Guimarães": 219847, "Gibbs-White": 215966,
+}
+
+def get_player_image_url(player_name: str) -> tuple[str, str]:
+    """Return (img_url, fallback_initials) for a player."""
+    surname = player_name.split()[-1]
+    pid = PLAYER_ID_MAP.get(surname)
+    if pid:
+        return f"https://resources.premierleague.com/premierleague/photos/players/250x250/p{pid}.png", ""
+    # Generic placeholder via UI Avatars (free, no API key)
+    initials = "".join(w[0] for w in player_name.split()[:2]).upper()
+    return f"https://ui-avatars.com/api/?name={initials}&background=1a1a2e&color=fff&size=128&bold=true&rounded=true", initials
+
+def fmt_formation(raw: str) -> str:
+    """Convert '1-4-4-2' → '4-4-2' (remove GK from display)."""
+    parts = raw.split("-")
+    if len(parts) == 4 and parts[0] == "1":
+        return "-".join(parts[1:])
+    return raw
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CSS — complete, self-contained
@@ -274,7 +295,7 @@ def run_pipeline_cached(cache_key: str, _min_minutes: int = 0):
 # Sidebar
 # ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("<h2 style='color:#00e87a;margin-bottom:0'>⚽ FPL AI</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#00e87a;margin-bottom:0'>⚽ Fantasy Premier League</h2>", unsafe_allow_html=True)
     st.markdown("<p style='font-size:.7rem;color:rgba(255,255,255,.35);margin-top:0;letter-spacing:.5px'>LIVE SQUAD OPTIMIZER</p>", unsafe_allow_html=True)
 
     status = get_data_status()
@@ -394,7 +415,7 @@ summary = result["summary"]
 # ─────────────────────────────────────────────────────────────────────────────
 src_icon = "🟢" if not status["is_stale"] and status["fetched_at"] else "🟡"
 st.markdown(
-    f"<h1 style='text-align:center;color:#00e87a;margin-bottom:3px'>FPL Helper Dashboard</h1>"
+    f"<h1 style='text-align:center;color:#00e87a;margin-bottom:3px'>Fantasy Premier League</h1>"
     f"<p style='text-align:center;color:rgba(255,255,255,.35);font-size:.78rem;margin-top:0'>"
     f"{gw_label} &nbsp;·&nbsp; {src_icon} {status['data_source']} &nbsp;·&nbsp; "
     f"Updated {status['age_str']} &nbsp;·&nbsp; {len(df_filtered)} players</p>",
@@ -408,7 +429,7 @@ k1, k2, k3, k4, k5, k6 = st.columns(6)
 kpis = [
     (k1, "Squad Cost",   f"£{summary['squad_cost']}M",              f"£{summary['budget_remaining']}M free"),
     (k2, "XI Predicted", f"{summary['xi_pts']} pts",                "Starting eleven"),
-    (k3, "Formation",    summary["formation"],                       "Auto-optimised LP"),
+    (k3, "Formation",    fmt_formation(summary["formation"]),        "Auto-optimised"),
     (k4, "Captain",      summary["captain"].split()[-1],            "2× points pick"),
     (k5, "Vice Captain", summary["vice_captain"].split()[-1],       "Backup captain"),
     (k6, "Bench Value",  f"{summary['bench_pts']} pts",             "Coverage score"),
@@ -427,9 +448,9 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ─────────────────────────────────────────────────────────────────────────────
 # Tabs
 # ─────────────────────────────────────────────────────────────────────────────
-tab_squad, tab_insights, tab_top, tab_diff, tab_ai, tab_pipeline = st.tabs([
+tab_squad, tab_insights, tab_top, tab_diff, tab_ai, tab_about = st.tabs([
     "🏟 My Squad", "💡 Insights", "📈 Top Players",
-    "🎯 Differentials", "🤖 AI Advisor", "⚙️ Pipeline",
+    "🎯 Differentials", "🤖 AI Advisor", "ℹ️ About",
 ])
 
 
@@ -441,96 +462,110 @@ with tab_squad:
 
     # ── Pitch ─────────────────────────────────────────────────────────────────
     with col_pitch:
-        st.markdown("<div class='sh'>🏟 Starting XI + Bench</div>", unsafe_allow_html=True)
+        st.markdown("<div class='sh'>🏟 Starting XI</div>", unsafe_allow_html=True)
 
-        def draw_pitch(xi_df: pd.DataFrame, bench_df: pd.DataFrame):
-            fig, ax = plt.subplots(figsize=(6, 9.5))
-            fig.patch.set_facecolor("#0d3b1e")
-            ax.set_facecolor("#1a6b2a")
-            ax.set_xlim(0, 100); ax.set_ylim(-48, 162); ax.axis("off")
-
-            # Pitch lines
-            for r in [
-                dict(xy=(5,5),   width=90, height=150, fill=False, ec="white", lw=1.1, alpha=.5),
-                dict(xy=(25,5),  width=50, height=22,  fill=False, ec="white", lw=.7,  alpha=.4),
-                dict(xy=(25,133),width=50, height=22,  fill=False, ec="white", lw=.7,  alpha=.4),
-                dict(xy=(30,5),  width=40, height=10,  fill=False, ec="white", lw=.7,  alpha=.35),
-                dict(xy=(30,140),width=40, height=10,  fill=False, ec="white", lw=.7,  alpha=.35),
-            ]:
-                ax.add_patch(patches.Rectangle(**r))
-            ax.add_patch(patches.Circle((50, 80), 17, fill=False, ec="white", lw=.7, alpha=.4))
-            ax.plot([5, 95], [80, 80], "white", lw=.7, alpha=.35)
-
-            # Player circles
-            groups = {"GK": [], "DEF": [], "MID": [], "FWD": []}
+        def render_html_pitch(xi_df: pd.DataFrame, bench_df: pd.DataFrame) -> str:
+            """
+            Build an HTML football pitch with player photo avatars.
+            Uses FPL CDN images with UI-Avatars fallback — no matplotlib needed.
+            """
+            pos_groups: dict[str, list] = {"GK": [], "DEF": [], "MID": [], "FWD": []}
             for _, p in xi_df.iterrows():
-                groups[p["position"]].append(p)
+                pos_groups[p["position"]].append(p)
 
-            y_pos = {"GK": 19, "DEF": 54, "MID": 95, "FWD": 134}
-            R = 20
+            # Y positions as percentage from top (GK at bottom = high %)
+            y_pct = {"GK": 85, "DEF": 64, "MID": 40, "FWD": 16}
+            border_col = POS_BORDER
 
-            for pos, players in groups.items():
-                if not players: continue
-                n  = len(players)
-                xs = np.linspace(14, 86, n)
-                y  = y_pos[pos]
-                c  = POS_COLORS[pos]
+            rows_html = ""
+            for pos in ["FWD", "MID", "DEF", "GK"]:
+                players = pos_groups[pos]
+                if not players:
+                    continue
+                n = len(players)
+                # Distribute evenly across pitch width
+                xs = [int(10 + i * 80 / max(n - 1, 1)) for i in range(n)] if n > 1 else [50]
+                y = y_pct[pos]
+                bc = border_col[pos]
 
                 for x, p in zip(xs, players):
-                    if p.get("is_captain"):
-                        ax.add_patch(plt.Circle((x, y), R+6, color="#ffd700", alpha=.18, zorder=4))
-                    ax.add_patch(plt.Circle((x, y), R, color=c, zorder=5))
-                    ax.add_patch(plt.Circle((x, y), R, fill=False, ec="white", lw=1.1, alpha=.65, zorder=6))
+                    img_url, _ = get_player_image_url(p["player_name"])
+                    surname = p["player_name"].split()[-1][:12]
+                    pts_val = f"{p['predicted_points']:.1f}"
+                    is_cap = p.get("is_captain", False)
+                    is_vc  = p.get("is_vice_captain", False)
+                    st_p   = str(p.get("status", "a"))
+                    inj_dot = ""
+                    if st_p == "i":
+                        inj_dot = "<span style='position:absolute;top:2px;left:2px;width:10px;height:10px;background:#ff4d6d;border-radius:50%;border:1px solid #fff;z-index:4'></span>"
+                    elif st_p == "d":
+                        inj_dot = "<span style='position:absolute;top:2px;left:2px;width:10px;height:10px;background:#ffc800;border-radius:50%;border:1px solid #fff;z-index:4'></span>"
 
-                    parts = p["player_name"].split()
-                    init = (parts[0][0] + parts[-1][0]).upper() if len(parts) > 1 else parts[0][:2].upper()
-                    ax.text(x, y, init, ha="center", va="center",
-                            fontsize=7, fontweight="bold", color="#0d1a0d", zorder=7)
+                    cap_badge = ""
+                    if is_cap:
+                        cap_badge = "<span style='position:absolute;top:-3px;right:-3px;background:#ffd700;color:#000;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:5;border:1.5px solid #fff'>C</span>"
+                    elif is_vc:
+                        cap_badge = "<span style='position:absolute;top:-3px;right:-3px;background:#aaa;color:#000;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:5;border:1.5px solid #fff'>V</span>"
 
-                    surname = p["player_name"].split()[-1][:11]
-                    ax.text(x, y - R - 7, surname, ha="center", va="top",
-                            fontsize=5.5, color="white", fontweight="600", zorder=7)
+                    rows_html += f"""
+                    <div style='position:absolute;left:{x}%;top:{y}%;transform:translate(-50%,-50%);text-align:center;z-index:3;width:68px'>
+                      <div style='position:relative;display:inline-block'>
+                        <img src='{img_url}'
+                          onerror="this.src='https://ui-avatars.com/api/?name={surname[:2]}&background=1a1a2e&color=fff&size=128&bold=true&rounded=true'"
+                          style='width:48px;height:48px;border-radius:50%;border:3px solid {bc};object-fit:cover;display:block;background:#1a1a2e'/>
+                        {cap_badge}
+                        {inj_dot}
+                      </div>
+                      <div style='background:rgba(0,0,0,.72);border-radius:4px;margin-top:3px;padding:1px 4px'>
+                        <div style='font-size:10px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:66px'>{surname}</div>
+                        <div style='font-size:10px;font-weight:700;color:{bc}'>{pts_val} pts</div>
+                      </div>
+                    </div>"""
 
-                    ax.text(x, y + R + 6, f"{p['predicted_points']:.1f}", ha="center", va="bottom",
-                            fontsize=5.8, color=c, fontweight="bold", zorder=7)
+            # Bench row
+            bench_html = ""
+            bench_list = list(bench_df.iterrows())
+            for i, (_, bp) in enumerate(bench_list):
+                bx = int(12 + i * 76 / max(len(bench_list) - 1, 1))
+                img_url, _ = get_player_image_url(bp["player_name"])
+                surname = bp["player_name"].split()[-1][:10]
+                bc = border_col[bp["position"]]
+                bench_html += f"""
+                <div style='text-align:center;width:70px'>
+                  <div style='position:relative;display:inline-block'>
+                    <img src='{img_url}'
+                      onerror="this.src='https://ui-avatars.com/api/?name={surname[:2]}&background=222&color=aaa&size=128&bold=true&rounded=true'"
+                      style='width:40px;height:40px;border-radius:50%;border:2.5px solid {bc};object-fit:cover;opacity:.7;background:#111'/>
+                    <span style='position:absolute;top:-3px;left:-3px;background:rgba(0,0,0,.7);color:rgba(255,255,255,.6);font-size:8px;width:13px;height:13px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.2)'>{i}</span>
+                  </div>
+                  <div style='font-size:9px;color:rgba(255,255,255,.65);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:68px'>{surname}</div>
+                  <div style='font-size:9px;color:{bc};font-weight:700'>{bp["predicted_points"]:.1f}</div>
+                </div>"""
 
-                    if p.get("is_captain"):
-                        ax.text(x + R - 2, y - R + 5, "C", fontsize=6.5, color="#ffd700", fontweight="bold", zorder=8)
-                    elif p.get("is_vice_captain"):
-                        ax.text(x + R - 2, y - R + 5, "V", fontsize=6.5, color="#ccc", fontweight="bold", zorder=8)
+            html = f"""
+            <div style='background:linear-gradient(180deg,#0f5c25 0%,#1a7a35 40%,#1a7a35 60%,#0f5c25 100%);
+                        border-radius:10px;padding:10px;position:relative;overflow:hidden;
+                        min-height:460px;border:2px solid rgba(255,255,255,.15)'>
+              <!-- Pitch markings -->
+              <div style='position:absolute;inset:10px;border:1.5px solid rgba(255,255,255,.25);border-radius:6px;pointer-events:none'></div>
+              <div style='position:absolute;left:50%;top:0;bottom:0;width:1.5px;background:rgba(255,255,255,.2);transform:translateX(-50%);pointer-events:none'></div>
+              <div style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:90px;height:90px;border-radius:50%;border:1.5px solid rgba(255,255,255,.2);pointer-events:none'></div>
+              <div style='position:absolute;top:10px;left:50%;transform:translateX(-50%);width:200px;height:55px;border:1.5px solid rgba(255,255,255,.2);border-top:none;pointer-events:none'></div>
+              <div style='position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:200px;height:55px;border:1.5px solid rgba(255,255,255,.2);border-bottom:none;pointer-events:none'></div>
+              {rows_html}
+            </div>
+            <!-- Bench -->
+            <div style='background:rgba(0,0,0,.35);border-radius:8px;margin-top:8px;padding:10px 6px;
+                        border:1px solid rgba(255,255,255,.1)'>
+              <div style='font-size:9px;color:rgba(255,255,255,.35);text-align:center;letter-spacing:2px;margin-bottom:8px;font-family:monospace'>BENCH</div>
+              <div style='display:flex;justify-content:space-around;align-items:flex-start'>
+                {bench_html}
+              </div>
+            </div>"""
+            return html
 
-                    # Injury dot
-                    status_p = str(p.get("status", "a"))
-                    if status_p in ("i", "s"):
-                        ax.add_patch(plt.Circle((x - R + 3, y + R - 4), 4, color="#ff4d6d", zorder=8))
-                    elif status_p == "d":
-                        ax.add_patch(plt.Circle((x - R + 3, y + R - 4), 4, color="#ffc800", zorder=8))
-
-            # Bench section
-            ax.add_patch(patches.FancyBboxPatch((2, -42), 96, 36,
-                boxstyle="round,pad=1", fc=(0, 0, 0, .38), ec=(1, 1, 1, .18), lw=.8, zorder=3))
-            ax.text(50, -9, "BENCH", ha="center", va="top",
-                    fontsize=6, color=(1, 1, 1, .38), fontweight="600", zorder=4)
-
-            BR = 13; by = -26
-            for x, (_, bp) in zip(np.linspace(14, 86, 4), bench_df.iterrows()):
-                c = POS_COLORS[bp["position"]]
-                ax.add_patch(plt.Circle((x, by), BR, color=c, alpha=.5, zorder=4))
-                ax.add_patch(plt.Circle((x, by), BR, fill=False, ec="white", lw=.8, alpha=.45, zorder=5))
-                parts = bp["player_name"].split()
-                init = (parts[0][0] + parts[-1][0]).upper() if len(parts) > 1 else parts[0][:2].upper()
-                ax.text(x, by, init, ha="center", va="center",
-                        fontsize=5.5, fontweight="bold", color="#0d1a0d", zorder=6)
-                ax.text(x, by - BR - 4, bp["player_name"].split()[-1][:10],
-                        ha="center", va="top", fontsize=4.8, color=(1, 1, 1, .55), zorder=6)
-                ax.text(x, by + BR + 4, f"{bp['predicted_points']:.1f}",
-                        ha="center", va="bottom", fontsize=4.8, color=c, fontweight="bold", zorder=6)
-
-            return fig
-
-        fig = draw_pitch(xi, bench)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
+        pitch_html = render_html_pitch(xi, bench)
+        st.markdown(pitch_html, unsafe_allow_html=True)
 
     # ── Player list ────────────────────────────────────────────────────────────
     with col_list:
@@ -800,22 +835,16 @@ with tab_diff:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — AI ADVISOR
+# TAB 5 — AI ADVISOR  (free: rule-based engine + optional Ollama LLM)
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_ai:
 
     def build_rag_context(xi_df, bench_df, df_all_f) -> str:
-        lines = [
-            f"=== FPL AI OPTIMIZER CONTEXT ===",
-            f"Gameweek: {gw_label} | Data: {status['data_source']} | Updated: {status['age_str']}",
-            "",
-            "STARTING XI:",
-        ]
+        lines = [f"=== FPL SQUAD CONTEXT ({gw_label}) ===", "STARTING XI:"]
         for _, p in xi_df.iterrows():
             badge = " [CAPTAIN]" if p.get("is_captain") else (" [VC]" if p.get("is_vice_captain") else "")
-            st_flag = "" if str(p.get("status","a")) == "a" else f" [{str(p.get('status','a')).upper()}]"
             lines.append(
-                f"  {p['position']} | {p['player_name']}{badge}{st_flag} | "
+                f"  {p['position']} | {p['player_name']}{badge} | "
                 f"£{p['cost']:.1f}M | {p['predicted_points']:.1f} pred pts | "
                 f"G:{int(p.get('goals_scored',0))} A:{int(p.get('assists',0))} | "
                 f"ICT:{p.get('ict_index',0):.0f} | Owned:{p.get('selected_by_percent',0):.1f}%"
@@ -823,309 +852,262 @@ with tab_ai:
         lines += ["", "BENCH:"]
         for _, p in bench_df.iterrows():
             lines.append(f"  {p['position']} | {p['player_name']} | £{p['cost']:.1f}M | {p['predicted_points']:.1f} pts")
-
-        lines += ["", "=== TOP 10 PLAYERS (transfer targets) ==="]
+        lines += ["", "TOP 10 PLAYERS:"]
         for _, p in df_all_f.nlargest(10, "predicted_points").iterrows():
-            lines.append(
-                f"  {p['position']} | {p['player_name']} | £{p['cost']:.1f}M | "
-                f"{p['predicted_points']:.1f} pts | {p.get('selected_by_percent',0):.1f}% owned"
-            )
-
+            lines.append(f"  {p['position']} | {p['player_name']} | £{p['cost']:.1f}M | {p['predicted_points']:.1f} pts | {p.get('selected_by_percent',0):.1f}% owned")
         val = df_all_f.assign(vpp=df_all_f["predicted_points"] / df_all_f["cost"].clip(lower=1))
-        lines += ["", "=== BEST VALUE (pts/£M) ==="]
+        lines += ["", "BEST VALUE:"]
         for _, p in val.nlargest(5, "vpp").iterrows():
             lines.append(f"  {p['player_name']} ({p['position']}) — {p['vpp']:.2f} pts/£M")
-
         diffs_ctx = find_differentials(df_all_f, threshold=5.0, top_n=5)
-        lines += ["", "=== TOP DIFFERENTIALS (< 5% owned) ==="]
+        lines += ["", "TOP DIFFERENTIALS (<5% owned):"]
         for _, p in diffs_ctx.iterrows():
             lines.append(f"  {p['player_name']} ({p['position']}) — {p['predicted_points']:.1f} pts, {p['selected_by_percent']:.1f}% owned")
-
         return "\n".join(lines)
 
-    SYSTEM_PROMPT = (
-        "You are an expert Fantasy Premier League (FPL) analyst and personal squad advisor. "
-        "You have been given the user's current 15-player squad (starting XI + bench), "
-        "live player statistics from the official FPL API, and AI-predicted points for the next gameweek. "
-        "Be concise, direct, and data-driven. Reference specific player names and their stats. "
-        "Use bullet points for lists. Respond like a knowledgeable friend, not a formal report. "
-        "Keep replies under 220 words unless asked for more. "
-        "Always factor in the current gameweek context and player availability status."
-    )
+    def rule_based_ai(question: str, xi_df, bench_df, df_all_f) -> str:
+        q = question.lower()
+        cap_row = xi_df.sort_values("predicted_points", ascending=False).iloc[0]
+        vc_row  = xi_df.sort_values("predicted_points", ascending=False).iloc[1] if len(xi_df) > 1 else cap_row
 
-    def _get_api_key() -> str | None:
-        """
-        Resolve Anthropic API key with priority:
-          1. Streamlit secrets   (st.secrets — works on Streamlit Cloud)
-          2. Environment variable (works locally / GitHub Actions)
-        """
-        try:
-            return st.secrets["ANTHROPIC_API_KEY"]
-        except Exception:
-            import os
-            return os.environ.get("ANTHROPIC_API_KEY")
+        if any(w in q for w in ["captain", "cap", "armband"]):
+            top3 = xi_df.nlargest(3, "predicted_points")
+            lines = [f"**© Captain recommendation: {cap_row['player_name']}**\n"]
+            for rank, (_, p) in enumerate(top3.iterrows(), 1):
+                icon = ["🥇","🥈","🥉"][rank-1]
+                lines.append(f"{icon} **{p['player_name']}** ({p['position']}) — {p['predicted_points']:.1f} pts predicted · £{p['cost']:.1f}M · {p.get('selected_by_percent',0):.1f}% owned")
+            lines.append(f"\nWith captain double: **{cap_row['predicted_points']*2:.1f} pts** projected.")
+            return "\n".join(lines)
 
-    def call_ai(user_message: str, context: str) -> str:
-        api_key = _get_api_key()
-        if not api_key:
-            return (
-                f"⚠️ **AI Advisor not configured.**\n\n"
-                f"To enable the AI advisor:\n"
-                f"- **Streamlit Cloud:** go to your app → ⋮ → Settings → Secrets, "
-                f"and add `ANTHROPIC_API_KEY = \"sk-ant-...\"` \n"
-                f"- **Local:** set the environment variable `ANTHROPIC_API_KEY=sk-ant-...`\n\n"
-                f"**Your squad summary — {gw_label}:**\n"
-                f"• Captain: **{summary['captain']}** · {summary['xi_pts']} XI pts predicted\n"
-                f"• Squad: £{summary['squad_cost']}M · Formation {summary['formation']}\n"
-                f"• Data: {status['data_source']} · {status['age_str']}"
-            )
+        if any(w in q for w in ["transfer", "sell", "buy", "replace", "upgrade", "swap"]):
+            xi_names = set(xi_df["player_name"])
+            weakest = xi_df.nsmallest(3, "predicted_points")
+            targets = df_all_f[~df_all_f["player_name"].isin(xi_names)].nlargest(6, "predicted_points")
+            lines = [f"**🔄 Transfer suggestions:**\n"]
+            for _, target in targets.iterrows():
+                for _, out in weakest.iterrows():
+                    if target["position"] == out["position"]:
+                        gain = round(target["predicted_points"] - out["predicted_points"], 1)
+                        lines.append(f"**OUT:** {out['player_name']} ({out['predicted_points']:.1f} pts) → **IN:** {target['player_name']} ({target['predicted_points']:.1f} pts, £{target['cost']:.1f}M) | {chr(43) if gain>0 else ''}{gain:.1f} pts gain")
+                        break
+                if len(lines) >= 4: break
+            return "\n".join(lines)
+
+        if any(w in q for w in ["differential", "low ownership", "unique", "diff"]):
+            diffs = find_differentials(df_all_f, threshold=5.0, top_n=5)
+            lines = ["**🎯 Best differentials (under 5% owned):**\n"]
+            for _, p in diffs.iterrows():
+                lines.append(f"• **{p['player_name']}** ({p['position']}) — {p['predicted_points']:.1f} pts · £{p['cost']:.1f}M · **{p['selected_by_percent']:.1f}%** owned")
+            lines.append("\nLow ownership = big rank gain potential if they deliver.")
+            return "\n".join(lines)
+
+        if any(w in q for w in ["weakness", "weak", "worst", "problem"]):
+            weakest = xi_df.nsmallest(3, "predicted_points")
+            lines = ["**⚠️ Squad weaknesses:**\n"]
+            for _, p in weakest.iterrows():
+                lines.append(f"• **{p['player_name']}** ({p['position']}) — only {p['predicted_points']:.1f} predicted pts")
+            lines.append(f"\nConsider upgrading these positions first.")
+            return "\n".join(lines)
+
+        if any(w in q for w in ["value", "cheap", "bargain", "hidden gem"]):
+            val = df_all_f.assign(vpp=df_all_f["predicted_points"] / df_all_f["cost"].clip(lower=1))
+            top_val = val[df_all_f["minutes"] >= 500].nlargest(5, "vpp")
+            lines = ["**💎 Best value picks (pts per £M):**\n"]
+            for _, p in top_val.iterrows():
+                lines.append(f"• **{p['player_name']}** ({p['position']}) — {p['predicted_points']:.1f} pts · £{p['cost']:.1f}M · **{p['vpp']:.2f} pts/£M**")
+            return "\n".join(lines)
+
+        if any(w in q for w in ["analyse", "analyze", "analysis", "overview", "full"]):
+            pos_pts = xi_df.groupby("position")["predicted_points"].sum()
+            lines = [f"**📊 Squad analysis — {gw_label}**\n",
+                     f"**Formation:** {fmt_formation(summary['formation'])} | **Cost:** £{summary['squad_cost']}M | **XI pts:** {summary['xi_pts']}",
+                     "\n**By position:**"]
+            for pos in ["GK","DEF","MID","FWD"]:
+                if pos in pos_pts: lines.append(f"• {pos}: {pos_pts[pos]:.1f} pts")
+            lines.append(f"\n**Captain:** {summary['captain']} → {cap_row['predicted_points']*2:.1f} pts with double")
+            return "\n".join(lines)
+
+        if any(w in q for w in ["trending", "popular", "transfer in", "hot"]):
+            if "transfer_momentum" in df_all_f.columns:
+                trending = df_all_f[df_all_f["transfer_momentum"] > 0].nlargest(5, "predicted_points")
+                lines = ["**📈 Trending players:**\n"]
+                for _, p in trending.iterrows():
+                    lines.append(f"• **{p['player_name']}** ({p['position']}) — {p['predicted_points']:.1f} pts · £{p['cost']:.1f}M ▲")
+                return "\n".join(lines)
+
+        xi_top = ", ".join(xi_df.nlargest(3,"predicted_points")["player_name"].tolist())
+        return (
+            f"**Your squad — {gw_label}:**\n\n"
+            f"• **Captain:** {summary['captain']} ({cap_row['predicted_points']:.1f} pts → {cap_row['predicted_points']*2:.1f} with double)\n"
+            f"• **XI predicted:** {summary['xi_pts']} pts | **Cost:** £{summary['squad_cost']}M\n"
+            f"• **Top players:** {xi_top}\n\n"
+            f"Try: *'Who should I captain?'* · *'Suggest transfers'* · *'Best differentials?'* · *'Analyse my squad'*"
+        )
+
+    def try_ollama(question: str, context: str, model: str = "llama3") -> str | None:
         try:
             payload = {
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 650,
-                "system": SYSTEM_PROMPT,
-                "messages": [{"role": "user", "content": f"{context}\n\n---\n\n{user_message}"}],
+                "model": model,
+                "prompt": (
+                    "You are an FPL analyst. Use this squad data to answer concisely (under 150 words, bullet points).\n\n"
+                    f"{context}\n\nQuestion: {question}"
+                ),
+                "stream": False,
             }
-            resp = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "Content-Type": "application/json",
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                },
-                json=payload, timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()["content"][0]["text"]
-        except Exception as exc:
-            return (
-                f"⚠️ AI response failed ({type(exc).__name__}). "
-                f"Check your API key in Streamlit secrets.\n\n"
-                f"**Squad summary:** Captain **{summary['captain']}** · "
-                f"£{summary['squad_cost']}M · {summary['formation']}"
-            )
+            resp = requests.post("http://localhost:11434/api/generate", json=payload, timeout=15)
+            if resp.status_code == 200:
+                return resp.json().get("response", "").strip()
+        except Exception:
+            pass
+        return None
+
+    def call_ai_free(user_message: str, context: str, use_ollama: bool, ollama_model: str) -> str:
+        if use_ollama:
+            ollama_resp = try_ollama(user_message, context, ollama_model)
+            if ollama_resp:
+                return ollama_resp
+            return rule_based_ai(user_message, xi, bench, df_filtered) + "\n\n*⚠️ Ollama not reachable — using built-in AI.*"
+        return rule_based_ai(user_message, xi, bench, df_filtered)
 
     rag_context = build_rag_context(xi, bench, df_filtered)
-
     ai_left, ai_right = st.columns([1.25, 1], gap="large")
 
     with ai_left:
         st.markdown("<div class='sh'>🤖 AI Advisor</div>", unsafe_allow_html=True)
         st.markdown(
             f"<p style='font-size:.75rem;color:rgba(255,255,255,.38);margin-bottom:.7rem'>"
-            f"Powered by {gw_label} live data · {len(df_filtered)} players · "
-            f"Updated {status['age_str']}</p>",
+            f"Free AI · {gw_label} · {len(df_filtered)} players analysed</p>",
             unsafe_allow_html=True,
         )
-
         if "chat_history" not in st.session_state:
             st.session_state["chat_history"] = []
-
         for msg in st.session_state["chat_history"]:
             if msg["role"] == "user":
-                st.markdown(
-                    f"<div class='ul'>You</div><div class='chat-user'>{msg['content']}</div>",
-                    unsafe_allow_html=True,
-                )
+                st.markdown(f"<div class='ul'>You</div><div class='chat-user'>{msg['content']}</div>", unsafe_allow_html=True)
             else:
-                st.markdown(
-                    f"<div class='cl'>⚽ FPL AI</div><div class='chat-ai'>{msg['content']}</div>",
-                    unsafe_allow_html=True,
-                )
-
+                content = msg["content"].replace("\n", "<br>").replace("**", "<b>", 1)
+                import re
+                content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', msg["content"].replace("\n","<br>"))
+                st.markdown(f"<div class='cl'>⚽ FPL AI</div><div class='chat-ai'>{content}</div>", unsafe_allow_html=True)
         with st.form("chat_form", clear_on_submit=True):
-            user_input = st.text_input(
-                "", placeholder="e.g. 'Why is Haaland captain?' · 'Suggest 2 transfers' · 'Best differential?'",
-                label_visibility="collapsed",
-            )
+            user_input = st.text_input("", placeholder="e.g. 'Who should I captain?' · 'Suggest 2 transfers' · 'Best differentials?'", label_visibility="collapsed")
             s_col, c_col = st.columns([3, 1])
-            with s_col:
-                send  = st.form_submit_button("Send  →", use_container_width=True)
-            with c_col:
-                clear = st.form_submit_button("Clear",   use_container_width=True)
-
+            with s_col: send  = st.form_submit_button("Send  →", use_container_width=True)
+            with c_col: clear = st.form_submit_button("Clear",   use_container_width=True)
         if clear:
-            st.session_state["chat_history"] = []
-            st.rerun()
-
+            st.session_state["chat_history"] = []; st.rerun()
         if send and user_input.strip():
-            st.session_state["chat_history"].append({"role": "user", "content": user_input.strip()})
+            use_ol = st.session_state.get("use_ollama", False)
+            ol_mdl = st.session_state.get("ollama_model", "llama3")
+            st.session_state["chat_history"].append({"role":"user","content":user_input.strip()})
             with st.spinner("Thinking…"):
-                reply = call_ai(user_input.strip(), rag_context)
-            st.session_state["chat_history"].append({"role": "assistant", "content": reply})
+                reply = call_ai_free(user_input.strip(), rag_context, use_ol, ol_mdl)
+            st.session_state["chat_history"].append({"role":"assistant","content":reply})
             st.rerun()
 
     with ai_right:
         st.markdown("<div class='sh'>💬 Quick Prompts</div>", unsafe_allow_html=True)
-        cap_name = summary.get("captain", "the captain").split()[-1]
-        quick = [
-            (f"Why is {cap_name} the captain pick?",          "©"),
-            ("Suggest 2 transfers to improve my squad",        "🔄"),
-            ("Best differential picks this gameweek?",         "🎯"),
-            ("What is my squad's biggest weakness?",           "⚠️"),
-            ("Full team analysis — strengths and weaknesses",  "📊"),
-            ("Who should I sell to free up budget?",           "💰"),
-            ("Best captain if my first choice blanks?",        "🔀"),
-            ("Which trending players should I buy?",           "📈"),
-        ]
-        for prompt_text, icon in quick:
+        for prompt_text, icon in [
+            ("Who should I captain?", "©"), ("Suggest 2 transfers", "🔄"),
+            ("Best differentials?", "🎯"), ("Analyse my squad", "📊"),
+            ("Squad weaknesses?", "⚠️"), ("Best value picks?", "💎"),
+            ("Which players are trending?", "📈"),
+        ]:
             if st.button(f"{icon}  {prompt_text}", key=f"qp_{hash(prompt_text)}", use_container_width=True):
-                st.session_state["chat_history"].append({"role": "user", "content": prompt_text})
+                use_ol = st.session_state.get("use_ollama", False)
+                ol_mdl = st.session_state.get("ollama_model", "llama3")
+                st.session_state["chat_history"].append({"role":"user","content":prompt_text})
                 with st.spinner("Thinking…"):
-                    reply = call_ai(prompt_text, rag_context)
-                st.session_state["chat_history"].append({"role": "assistant", "content": reply})
+                    reply = call_ai_free(prompt_text, rag_context, use_ol, ol_mdl)
+                st.session_state["chat_history"].append({"role":"assistant","content":reply})
                 st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("🦙 Local LLM (Ollama) — optional", expanded=False):
+            st.markdown("<div style='font-size:.72rem;color:rgba(255,255,255,.5);line-height:1.7'>Upgrade to a local LLM.<br>1. Install <a href='https://ollama.ai' style='color:#00e87a'>ollama.ai</a><br>2. Run: <code>ollama pull llama3</code><br>3. Enable below</div>", unsafe_allow_html=True)
+            use_ollama = st.toggle("Use Ollama LLM", value=False, key="use_ollama")
+            ollama_model = st.selectbox("Model", ["llama3","mistral","phi3","llama3.2"], key="ollama_model")
+            if use_ollama:
+                if try_ollama("ping","test",ollama_model): st.success(f"✓ {ollama_model} connected")
+                else: st.warning("⚠️ Ollama not running — using built-in AI")
+        st.markdown(
+            f"<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:.7rem .9rem;font-size:.73rem;color:rgba(255,255,255,.45);line-height:1.8;margin-top:.5rem'>"
+            f"<strong style='color:rgba(255,255,255,.68)'>Context loaded:</strong><br>"
+            f"✓ {len(xi)} starters · {len(bench)} bench<br>✓ {len(df_filtered)} players<br>"
+            f"✓ {gw_label} · {fmt_formation(summary['formation'])}<br>✓ Captain: {summary['captain']}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — ABOUT
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_about:
+    ab1, ab2 = st.columns([1, 1], gap="large")
+    with ab1:
+        st.markdown("<div class='sh'>⚽ About This App</div>", unsafe_allow_html=True)
+        st.markdown("""
+        <div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:1.2rem 1.4rem;font-size:.84rem;line-height:1.8'>
+        <p><strong style='color:#00e87a'>FPL AI Optimizer</strong> is a free, open-source Fantasy Premier League assistant that uses machine learning and mathematical optimization to help you build the best possible squad.</p>
+        <br>
+        <strong style='color:rgba(255,255,255,.8)'>What it does</strong><br>
+        • Fetches live player data from the official FPL API<br>
+        • Predicts each player's expected points using ML models<br>
+        • Selects the optimal 15-player squad using linear programming<br>
+        • Provides AI-powered recommendations — completely free<br>
+        <br>
+        <strong style='color:rgba(255,255,255,.8)'>Data source</strong><br>
+        All data comes from the official FPL API at <code>fantasy.premierleague.com</code>. Refreshed daily.
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<br><div class='sh'>🧠 How Predictions Work</div>", unsafe_allow_html=True)
+        st.markdown("""
+        <div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:1.2rem 1.4rem;font-size:.84rem;line-height:1.8'>
+        <strong style='color:rgba(255,255,255,.8)'>1. Feature engineering</strong><br>
+        Raw FPL stats (goals, assists, ICT index, minutes) are transformed into meaningful signals like pts/90, form score, and value ratio.<br><br>
+        <strong style='color:rgba(255,255,255,.8)'>2. Machine learning</strong><br>
+        Two models are trained — Random Forest and Gradient Boosting. The better-performing model (measured by error rate) is automatically selected.<br><br>
+        <strong style='color:rgba(255,255,255,.8)'>3. Optimization</strong><br>
+        Integer Linear Programming selects the best 15-player squad that maximises predicted points within the £100M budget and formation constraints.<br><br>
+        <strong style='color:rgba(255,255,255,.8)'>4. AI Advisor</strong><br>
+        A rule-based engine analyses your squad and answers questions about captaincy, transfers, and differentials using the model's predictions.
+        </div>
+        """, unsafe_allow_html=True)
+
+    with ab2:
+        st.markdown("<div class='sh'>📖 How to Use</div>", unsafe_allow_html=True)
+        steps = [
+            ("🏟 My Squad", "View your AI-optimised 15-player squad on the pitch. Player photos, predicted points, and captain badge shown."),
+            ("💡 Insights", "Auto-generated gameweek insights: best value picks, captain recommendations, and risky high-ceiling players."),
+            ("📈 Top Players", "Browse all players ranked by predicted points. Filter by position or search for specific players."),
+            ("🎯 Differentials", "Find low-ownership players with strong predicted returns — the picks that separate you from the crowd."),
+            ("🤖 AI Advisor", "Chat with the free AI advisor. Ask about transfers, captaincy, weaknesses, or differentials."),
+        ]
+        for tab_name, desc in steps:
+            st.markdown(
+                f"<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);"
+                f"border-radius:8px;padding:.65rem .9rem;margin-bottom:.5rem;font-size:.83rem'>"
+                f"<strong style='color:#00e87a'>{tab_name}</strong><br>"
+                f"<span style='color:rgba(255,255,255,.6)'>{desc}</span></div>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<br><div class='sh'>🔄 Keeping Data Fresh</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div style='background:rgba(0,232,122,.06);border:1px solid rgba(0,232,122,.2);border-radius:8px;padding:.8rem 1rem;font-size:.82rem;line-height:1.7'>"
+            "Click <strong style='color:#00e87a'>🔄 Refresh Live Data</strong> in the sidebar to fetch the latest player stats from the FPL API. "
+            "Data is automatically refreshed daily — your squad predictions update whenever new data is available."
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(
-            f"<div style='background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);"
-            f"border-radius:8px;padding:.7rem .9rem;font-size:.73rem;color:rgba(255,255,255,.45);line-height:1.8'>"
-            f"<strong style='color:rgba(255,255,255,.68)'>RAG Context loaded:</strong><br>"
-            f"✓ {len(xi)} starters · {len(bench)} bench players<br>"
-            f"✓ {len(df_filtered)} players with predictions<br>"
-            f"✓ {status['data_source']} · {status['age_str']}<br>"
-            f"✓ {gw_label} · {status['n_players']} total players<br>"
-            f"✓ Model: {status['model_name']}"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — PIPELINE STATUS
-# ═══════════════════════════════════════════════════════════════════════════════
-with tab_pipeline:
-    st.markdown("<div class='sh'>⚙️ Live Data Pipeline</div>", unsafe_allow_html=True)
-    p1, p2, p3 = st.columns(3)
-
-    with p1:
-        st.markdown("##### 🔌 Data Source")
-        st.markdown(
-            f"<div class='pipeline-box'>"
-            f"<strong>FPL API</strong><br>"
-            f"Endpoint: bootstrap-static/<br>"
-            f"Status: {status['data_source']}<br>"
-            f"Last fetch: {status['age_str']}<br>"
-            f"Players fetched: {status['n_players']}<br>"
-            f"Gameweek: {gw_label}<br>"
-            f"Deadline: {_fmt_deadline(status['gw_deadline'])}<br>"
-            f"Stale after: {DATA_STALE_HOURS}h"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-        if st.button("🔄 Fetch Now", key="fetch_now_btn"):
-            with st.spinner("Fetching from FPL API…"):
-                ok, msg = do_live_refresh()
-            (st.success if ok else st.warning)(msg)
-            if ok:
-                st.cache_data.clear()
-                st.rerun()
-
-    with p2:
-        st.markdown("##### 🧠 ML Pipeline")
-        best_model_name = status["model_name"]
-        best_metrics = ml_metrics.get(best_model_name, {})
-        trained_ago = _fmt_trained_at(status["model_trained_at"])
-        st.markdown(
-            f"<div class='pipeline-box'>"
-            f"<strong>Model Cache</strong><br>"
-            f"Active model: {best_model_name}<br>"
-            f"Trained: {trained_ago}<br>"
-            f"On: {status.get('model_n_players','?')} players<br>"
-            f"Cache TTL: 24h<br>"
-            f"MAE: {best_metrics.get('MAE','—')}<br>"
-            f"RMSE: {best_metrics.get('RMSE','—')}<br>"
-            f"Retrain trigger: data change"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-        if st.button("🔁 Force Retrain", key="retrain_btn"):
-            with st.spinner("Retraining models…"):
-                df_rt = load_and_prepare(prefer_live=True, min_minutes=0)
-                df_rt, pred_rt, met_rt = run_ml_pipeline(df_rt, get_feature_columns())
-                save_predictor(pred_rt, df_rt)
-                st.cache_data.clear()
-            st.success(f"Retrained {pred_rt.best_name}. MAE: {met_rt[pred_rt.best_name]['MAE']:.4f}")
-            st.rerun()
-
-    with p3:
-        st.markdown("##### 🗂 Storage Paths")
-        from data.loader import PROCESSED_PATH, STATIC_PATH
-        pred_path = ROOT / "data" / "predictions" / "latest.csv"
-        meta_path = ROOT / "data" / "cache" / "metadata.json"
-        model_pkl = ROOT / "models" / "saved" / "predictor.pkl"
-
-        def file_info(p: Path) -> str:
-            if p.exists():
-                size_kb = p.stat().st_size / 1024
-                return f"✓ {size_kb:.0f} KB"
-            return "✗ Not found"
-
-        st.markdown(
-            f"<div class='pipeline-box'>"
-            f"<strong>Files</strong><br>"
-            f"Processed CSV: {file_info(PROCESSED_PATH)}<br>"
-            f"Static CSV: {file_info(STATIC_PATH)}<br>"
-            f"Predictions: {file_info(pred_path)}<br>"
-            f"API metadata: {file_info(meta_path)}<br>"
-            f"Model pickle: {file_info(model_pkl)}<br>"
-            f"Log dir: {file_info(ROOT/'logs')}"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-    st.markdown("##### 🕐 Automation")
-    auto1, auto2 = st.columns(2)
-    with auto1:
-        st.markdown(
-            "**Option A — cron (Linux/macOS)**\n"
-            "```\n# Every day at 06:00 UTC\n"
-            "0 6 * * * cd /path/to/fpl_optimizer && "
-            "python update_data.py >> logs/cron.log 2>&1\n```\n\n"
-            "**Option B — Windows Task Scheduler**\n"
-            "```\nschtasks /create /tn \"FPL Update\" \\\n"
-            "  /tr \"python C:\\path\\update_data.py\" \\\n"
-            "  /sc DAILY /st 06:00\n```"
-        )
-    with auto2:
-        st.markdown(
-            "**Option C — APScheduler (long-running process)**\n"
-            "```bash\npython update_data.py --schedule --interval 6\n```\n\n"
-            "**Manual CLI commands**\n"
-            "```bash\n# Check status\npython update_data.py --check-only\n\n"
-            "# Force full refresh\npython update_data.py --force\n\n"
-            "# Retrain model only\npython models/train.py --force\n```"
-        )
-
-    # Recent log entries
-    st.markdown("---")
-    st.markdown("##### 📋 Recent Pipeline Runs")
-    log_path = ROOT / "logs" / "pipeline_runs.jsonl"
-    if log_path.exists():
-        try:
-            lines = log_path.read_text().strip().splitlines()
-            last_5 = [json.loads(l) for l in lines[-5:]]
-            for run in reversed(last_5):
-                run_at = run.get("run_at", "?")[:19]
-                f_stat = run.get("fetch", {}).get("status", "?")
-                t_stat = run.get("train", {}).get("status", "?")
-                elapsed = run.get("elapsed_sec", "?")
-                icon_f = "✅" if f_stat in ("fetched","skipped") else "❌"
-                icon_t = "✅" if t_stat in ("trained","skipped") else "❌"
-                st.markdown(
-                    f"<div style='font-size:.73rem;color:rgba(255,255,255,.5);padding:.3rem 0;border-bottom:1px solid rgba(255,255,255,.06)'>"
-                    f"<b style='color:rgba(255,255,255,.7)'>{run_at}</b> · "
-                    f"{icon_f} Fetch: {f_stat} · {icon_t} Train: {t_stat} · {elapsed}s"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-        except Exception as e:
-            st.caption(f"Could not parse log: {e}")
-    else:
-        st.markdown(
-            "<p style='font-size:.75rem;color:rgba(255,255,255,.35)'>"
-            "No pipeline runs logged yet. Run <code>python update_data.py</code> to start.</p>",
+            "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:.8rem 1rem;font-size:.78rem;color:rgba(255,255,255,.45);line-height:1.7'>"
+            "<strong style='color:rgba(255,255,255,.6)'>Open source · Free forever</strong><br>"
+            "No paid APIs required. All predictions run locally. AI advisor works without any API keys.<br><br>"
+            "Built with: Python · Streamlit · Scikit-learn · SciPy · Official FPL API"
+            "</div>",
             unsafe_allow_html=True,
         )
 
@@ -1135,7 +1117,6 @@ with tab_pipeline:
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown(
     f"<br><p style='text-align:center;color:rgba(255,255,255,.15);font-size:.68rem'>"
-    f"FPL AI Optimizer v3 · Live API + Gradient Boosting + Integer LP · "
-    f"{gw_label} · Last updated {status['age_str']}</p>",
+    f"FPL AI Optimizer · Free & Open Source · ML + Linear Programming · {gw_label}</p>",
     unsafe_allow_html=True,
 )
