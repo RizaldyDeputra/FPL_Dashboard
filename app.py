@@ -6,6 +6,10 @@ FPL AI Optimizer Dashboard  ·  v3 – Live Pipeline Edition
 import json, logging, sys, threading
 from datetime import datetime, timezone
 from pathlib import Path
+from html import escape
+from urllib.parse import quote_plus
+import unicodedata
+
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
@@ -60,28 +64,127 @@ POS_COLORS = {"GK": "#f8d100", "DEF": "#00e87a", "MID": "#01faf9", "FWD": "#ff4d
 POS_BORDER = {"GK": "#f8d100", "DEF": "#00e87a", "MID": "#01faf9", "FWD": "#ff4d6d"}
 
 # Known FPL player IDs for image lookup (extended map for common players)
-PLAYER_ID_MAP = {
-    "Raya": 169187, "Flekken": 241978, "Roefs": 493237, "Trippier": 80680, "Pedro Porro": 241568,
-    "Gabriel": 148225, "Timber": 493260, "Saliba": 223340, "White": 204480,
-    "Van Dijk": 97032, "Robertson": 122798, "Tarkowski": 85971, "Mykolenko": 463916,
-    "Guéhi": 223094, "Pedro": 241568, "Senesi": 464035, "Van Hecke": 464034,
-    "Haaland": 447,  "Watkins": 216238, "Isak": 224005, "Bowen": 219847,
-    "Thiago": 464100, "Wood": 60826,
-    "Salah": 118748, "Saka": 223085, "Palmer": 244723, "Mbeumo": 195473,
-    "Fernandes": 6021, "Rice": 184341, "Semenyo": 464041, "Rogers": 464043,
-    "Wilson": 57892, "Anderson": 238718, "Garner": 444145,
-    "Guimarães": 219847, "Gibbs-White": 215966,
+PLAYER_IMAGE_LOOKUP = {
+    "raya": 169187, "flekken": 241978, "roefs": 493237, "trippier": 80680,
+    "pedro porro": 241568, "gabriel": 148225, "timber": 493260, "saliba": 223340,
+    "white": 204480, "van dijk": 97032, "robertson": 122798, "tarkowski": 85971,
+    "mykolenko": 463916, "guehi": 223094, "pedro": 241568, "senesi": 464035,
+    "van hecke": 464034, "haaland": 447, "watkins": 216238, "isak": 224005,
+    "bowen": 219847, "thiago": 464100, "wood": 60826, "salah": 118748,
+    "saka": 223085, "palmer": 244723, "mbeumo": 195473, "fernandes": 6021,
+    "rice": 184341, "semenyo": 464041, "rogers": 464043, "wilson": 57892,
+    "anderson": 238718, "garner": 444145, "guimaraes": 219847, "gibbs white": 215966,
 }
 
-def get_player_image_url(player_name: str) -> tuple[str, str]:
-    """Return (img_url, fallback_initials) for a player."""
-    surname = player_name.split()[-1]
-    pid = PLAYER_ID_MAP.get(surname)
-    if pid:
-        return f"https://resources.premierleague.com/premierleague/photos/players/250x250/p{pid}.png", ""
-    # Generic placeholder via UI Avatars (free, no API key)
-    initials = "".join(w[0] for w in player_name.split()[:2]).upper()
-    return f"https://ui-avatars.com/api/?name={initials}&background=1a1a2e&color=fff&size=128&bold=true&rounded=true", initials
+def normalise_player_key(name: str) -> str:
+    ascii_name = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode("ascii")
+    return " ".join(ascii_name.lower().replace("-", " ").split())
+
+def build_avatar_url(label: str) -> str:
+    parts = [part for part in str(label).split() if part]
+    initials = "".join(part[0] for part in parts[:2]).upper() or "PL"
+    return (
+        "https://ui-avatars.com/api/"
+        f"?name={quote_plus(initials)}"
+        "&background=13202b&color=ffffff&size=128&bold=true&rounded=true"
+    )
+
+def get_player_image_sources(player_name: str) -> tuple[str, str]:
+    parts = [part for part in str(player_name).split() if part]
+    candidates = [str(player_name)]
+    if len(parts) >= 2:
+        candidates.append(" ".join(parts[-2:]))
+    if parts:
+        candidates.append(parts[-1])
+
+    fallback_url = build_avatar_url(player_name)
+    for candidate in candidates:
+        player_id = PLAYER_IMAGE_LOOKUP.get(normalise_player_key(candidate))
+        if player_id:
+            primary_url = (
+                "https://resources.premierleague.com/premierleague/photos/"
+                f"players/250x250/p{player_id}.png"
+            )
+            return primary_url, fallback_url
+
+    return fallback_url, fallback_url
+
+def shorten_player_name(player_name: str, max_chars: int = 12) -> str:
+    parts = [part for part in str(player_name).split() if part]
+    if not parts:
+        return ""
+    preferred = " ".join(parts[-2:]) if len(parts) > 2 and len(parts[-2]) <= 3 else parts[-1]
+    return preferred if len(preferred) <= max_chars else preferred[: max_chars - 1] + "…"
+
+def get_row_positions(count: int) -> list[float]:
+    presets = {
+        1: [50.0],
+        2: [33.0, 67.0],
+        3: [22.0, 50.0, 78.0],
+        4: [15.0, 38.5, 61.5, 85.0],
+        5: [12.0, 31.0, 50.0, 69.0, 88.0],
+    }
+    if count in presets:
+        return presets[count]
+    return [12.0 + (76.0 / max(count - 1, 1)) * idx for idx in range(count)]
+
+def build_player_card(player: pd.Series, left_pct: float, top_pct: float) -> str:
+    primary_img, fallback_img = get_player_image_sources(player["player_name"])
+    accent = POS_BORDER[player["position"]]
+    display_name = escape(shorten_player_name(player["player_name"]))
+    status = str(player.get("status", "a"))
+
+    role_badge = ""
+    if player.get("is_captain"):
+        role_badge = "<span class='player-role-badge captain'>C</span>"
+    elif player.get("is_vice_captain"):
+        role_badge = "<span class='player-role-badge vice'>V</span>"
+
+    status_badge = ""
+    if status == "i":
+        status_badge = "<span class='player-status-dot unavailable'></span>"
+    elif status in {"d", "s"}:
+        status_badge = "<span class='player-status-dot doubtful'></span>"
+
+    return f""
+    <div class="player-card" style="left:{left_pct:.1f}%;top:{top_pct:.1f}%;">
+      <div class="player-card-inner">
+        <div class="player-avatar-wrap" style="--player-accent:{accent};">
+          <img
+            class="player-avatar"
+            src="{primary_img}"
+            alt="{escape(str(player['player_name']))}"
+            onerror="this.onerror=null;this.src='{fallback_img}';"
+          />
+          {role_badge}
+          {status_badge}
+        </div>
+        <div class="player-meta" style="--player-accent:{accent};">
+          <span class="player-name">{display_name}</span>
+          <span class="player-points">{float(player['predicted_points']):.1f} pts</span>
+        </div>
+      </div>
+    </div>
+    ""
+
+def build_bench_card(player: pd.Series, order: int) -> str:
+    primary_img, fallback_img = get_player_image_sources(player["player_name"])
+    accent = POS_BORDER[player["position"]]
+    return f""
+    <div class="bench-card" style="--player-accent:{accent};">
+      <div class="bench-avatar-wrap">
+        <img
+          class="bench-avatar"
+          src="{primary_img}"
+          alt="{escape(str(player['player_name']))}"
+          onerror="this.onerror=null;this.src='{fallback_img}';"
+        />
+        <span class="bench-order">{order}</span>
+      </div>
+      <div class="bench-name">{escape(shorten_player_name(player["player_name"], max_chars=14))}</div>
+      <div class="bench-points">{float(player["predicted_points"]):.1f} pts</div>
+    </div>
+    ""
 
 def fmt_formation(raw: str) -> str:
     """Convert '1-4-4-2' → '4-4-2' (remove GK from display)."""
@@ -97,94 +200,182 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&display=swap');
 
-:root{--g:#00e87a;--gold:#ffd700;--rd:#ff4d6d}
+:root{
+  --bg-start:#1c0021;
+  --bg-end:#2d003a;
+  --text-main:#e8e0f0;
+  --text-soft:rgba(232,224,240,.72);
+  --lineup-glass:rgba(8,14,22,.32);
+  --pitch-line:rgba(255,255,255,.22);
+  --pitch-shadow:0 20px 45px rgba(0,0,0,.28);
+  --g:#00e87a;
+  --gold:#ffd700;
+  --rd:#ff4d6d;
+}
 
-html,body,[class*="css"]{font-family:'DM Sans',sans-serif!important;background:#1c0021!important;color:#e8e0f0!important}
-.stApp{background:linear-gradient(160deg,#1c0021 0%,#2d003a 100%)!important}
+html, body {
+  font-family:'DM Sans',sans-serif;
+  background:var(--bg-start);
+  color:var(--text-main);
+}
 
-section[data-testid="stSidebar"]{background:rgba(28,0,33,.98)!important;border-right:1px solid rgba(0,232,122,.15)!important}
-section[data-testid="stSidebar"] *{color:#e8e0f0!important}
-section[data-testid="stSidebar"] select{background:rgba(255,255,255,.08)!important}
+.stApp,
+[data-testid="stAppViewContainer"]{
+  background:linear-gradient(160deg,var(--bg-start) 0%,var(--bg-end) 100%);
+  color:var(--text-main);
+}
 
-h1,h2,h3{font-family:'Bebas Neue',sans-serif!important;letter-spacing:2px;color:#e8e0f0!important}
+.stApp,
+.stApp p,
+.stApp span,
+.stApp label,
+.stApp input,
+.stApp button,
+.stApp select{
+  font-family:'DM Sans',sans-serif;
+}
 
-/* KPI cards */
-.kpi-card{background:rgba(255,255,255,.06);border:1px solid rgba(0,232,122,.22);border-radius:12px;padding:1rem 1.2rem;text-align:center}
-.kpi-label{font-size:.65rem;color:rgba(255,255,255,.42);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
-.kpi-value{font-family:'Bebas Neue',sans-serif;font-size:1.7rem;color:#00e87a;line-height:1}
-.kpi-value-sm{font-family:'Bebas Neue',sans-serif;font-size:1.05rem;color:#00e87a;line-height:1.2}
-.kpi-sub{font-size:.6rem;color:rgba(255,255,255,.3);margin-top:3px}
+h1,h2,h3{
+  font-family:'Bebas Neue',sans-serif!important;
+  letter-spacing:2px;
+  color:var(--text-main)!important;
+}
 
-/* Live status badge */
-.status-badge{display:inline-flex;align-items:center;gap:6px;border-radius:20px;padding:4px 12px;font-size:.7rem;font-weight:500;letter-spacing:.3px;margin-bottom:.4rem}
-.status-live{background:rgba(0,232,122,.1);border:1px solid rgba(0,232,122,.3);color:#00e87a}
-.status-stale{background:rgba(255,200,0,.08);border:1px solid rgba(255,200,0,.25);color:#ffc800}
-.status-error{background:rgba(255,77,109,.08);border:1px solid rgba(255,77,109,.25);color:#ff4d6d}
-.dot-pulse{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.dot-live{background:#00e87a;animation:pulse-g 2s infinite}
-.dot-stale{background:#ffc800}
-.dot-error{background:#ff4d6d}
-@keyframes pulse-g{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,232,122,.4)}50%{opacity:.7;box-shadow:0 0 0 4px rgba(0,232,122,0)}}
+section[data-testid="stSidebar"]{
+  background:rgba(28,0,33,.98)!important;
+  border-right:1px solid rgba(0,232,122,.15)!important;
+}
 
-/* Pipeline status box */
-.pipeline-box{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:.7rem .9rem;font-size:.73rem;color:rgba(255,255,255,.5);line-height:1.8}
-.pipeline-box strong{color:rgba(255,255,255,.7)}
+section[data-testid="stSidebar"] *{
+  color:var(--text-main)!important;
+}
 
-/* Section headers */
-.sh{font-family:'Bebas Neue',sans-serif;font-size:.95rem;letter-spacing:2px;color:rgba(255,255,255,.65);margin-bottom:.6rem}
+.lineup-shell{position:relative;overflow:visible;isolation:isolate}
+.lineup-pitch{
+  position:relative;
+  height:520px;
+  width:100%;
+  overflow:visible;
+  isolation:isolate;
+  border-radius:22px;
+  border:1px solid rgba(255,255,255,.14);
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,.08), transparent 28%),
+    repeating-linear-gradient(
+      180deg,
+      rgba(255,255,255,.03) 0px,
+      rgba(255,255,255,.03) 48px,
+      rgba(255,255,255,.01) 48px,
+      rgba(255,255,255,.01) 96px
+    ),
+    linear-gradient(180deg, #0d5a28 0%, #18743a 52%, #0f602d 100%);
+  box-shadow:var(--pitch-shadow);
+}
+.lineup-pitch::before{
+  content:"";
+  position:absolute;
+  inset:12px;
+  border:2px solid var(--pitch-line);
+  border-radius:18px;
+  pointer-events:none;
+}
+.pitch-halfway,.pitch-centre-circle,.pitch-top-box,.pitch-bottom-box,.pitch-top-six,.pitch-bottom-six,.pitch-top-spot,.pitch-bottom-spot,.pitch-centre-spot{
+  position:absolute;
+  pointer-events:none;
+}
+.pitch-halfway{left:50%;top:12px;bottom:12px;width:2px;transform:translateX(-50%);background:var(--pitch-line)}
+.pitch-centre-circle{left:50%;top:50%;width:108px;height:108px;transform:translate(-50%,-50%);border:2px solid var(--pitch-line);border-radius:50%}
+.pitch-top-box,.pitch-bottom-box{left:50%;width:min(42%,230px);height:84px;transform:translateX(-50%);border:2px solid var(--pitch-line)}
+.pitch-top-box{top:12px;border-top:none;border-radius:0 0 18px 18px}
+.pitch-bottom-box{bottom:12px;border-bottom:none;border-radius:18px 18px 0 0}
+.pitch-top-six,.pitch-bottom-six{left:50%;width:min(22%,118px);height:34px;transform:translateX(-50%);border:2px solid var(--pitch-line)}
+.pitch-top-six{top:12px;border-top:none;border-radius:0 0 12px 12px}
+.pitch-bottom-six{bottom:12px;border-bottom:none;border-radius:12px 12px 0 0}
+.pitch-top-spot,.pitch-bottom-spot,.pitch-centre-spot{width:8px;height:8px;border-radius:50%;background:var(--pitch-line)}
+.pitch-top-spot{left:50%;top:92px;transform:translate(-50%,-50%)}
+.pitch-bottom-spot{left:50%;bottom:92px;transform:translate(-50%,50%)}
+.pitch-centre-spot{left:50%;top:50%;transform:translate(-50%,-50%)}
 
-/* Player rows */
-.player-row{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:.45rem .8rem;margin-bottom:.28rem;display:flex;align-items:center;gap:.45rem;font-size:.82rem}
-.player-row:hover{border-color:rgba(0,232,122,.28);background:rgba(0,232,122,.04);cursor:default}
-.bench-row{background:rgba(255,255,255,.025);border:1px dashed rgba(255,255,255,.1);border-radius:8px;padding:.38rem .75rem;margin-bottom:.22rem;display:flex;align-items:center;gap:.45rem;font-size:.79rem;color:rgba(255,255,255,.62)}
+.player-card{
+  position:absolute;
+  width:90px;
+  transform:translate(-50%,-50%);
+  text-align:center;
+  z-index:3;
+}
+.player-card-inner{display:flex;flex-direction:column;align-items:center;gap:8px}
+.player-avatar-wrap{position:relative;width:58px;height:58px}
+.player-avatar{
+  width:58px;height:58px;border-radius:50%;display:block;object-fit:cover;
+  background:#13202b;border:3px solid var(--player-accent,#fff);box-shadow:0 10px 18px rgba(0,0,0,.28)
+}
+.player-meta{
+  width:100%;padding:7px 8px 8px;border-radius:14px;background:rgba(8,12,18,.72);
+  backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 20px rgba(0,0,0,.22)
+}
+.player-name{
+  display:block;color:#fff;font-size:11px;font-weight:700;line-height:1.1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.player-points{display:block;margin-top:4px;color:var(--player-accent,#fff);font-size:11px;font-weight:800}
+.player-role-badge,.player-status-dot{
+  position:absolute;display:flex;align-items:center;justify-content:center;z-index:2
+}
+.player-role-badge{
+  right:-2px;top:-2px;width:19px;height:19px;border-radius:999px;
+  border:1.5px solid #fff;font-size:10px;font-weight:800;color:#091018
+}
+.player-role-badge.captain{background:var(--gold)}
+.player-role-badge.vice{background:#cdd4df}
+.player-status-dot{left:-1px;top:2px;width:11px;height:11px;border-radius:50%;border:1.5px solid #fff}
+.player-status-dot.doubtful{background:#ffc800}
+.player-status-dot.unavailable{background:var(--rd)}
 
-/* Position tags */
-.tag{font-size:.58rem;font-weight:700;padding:2px 5px;border-radius:3px;min-width:28px;text-align:center;flex-shrink:0}
-.tag-GK{background:#f8d100;color:#000}
-.tag-DEF{background:#00e87a;color:#000}
-.tag-MID{background:#01faf9;color:#000}
-.tag-FWD{background:#ff4d6d;color:#fff}
+.lineup-bench{
+  margin-top:14px;padding:14px;border-radius:18px;border:1px solid rgba(255,255,255,.08);
+  background:var(--lineup-glass)
+}
+.lineup-bench-label{
+  margin-bottom:12px;text-align:center;font-size:11px;letter-spacing:.22em;
+  color:rgba(255,255,255,.5);text-transform:uppercase
+}
+.lineup-bench-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.bench-card{
+  min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 8px;
+  border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)
+}
+.bench-avatar-wrap{position:relative;width:46px;height:46px}
+.bench-avatar{
+  width:46px;height:46px;border-radius:50%;object-fit:cover;display:block;opacity:.88;
+  background:#101820;border:2.5px solid var(--player-accent,#fff)
+}
+.bench-order{
+  position:absolute;left:-4px;top:-4px;width:17px;height:17px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;
+  background:rgba(8,12,18,.82);border:1px solid rgba(255,255,255,.15)
+}
+.bench-name,.bench-points{
+  width:100%;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.bench-name{color:var(--text-soft);font-size:11px;font-weight:600}
+.bench-points{color:var(--player-accent,#fff);font-size:11px;font-weight:800}
 
-/* Captain / VC */
-.badge-cap{background:#ffd700;color:#000;font-size:.56rem;font-weight:700;border-radius:3px;padding:1px 4px;flex-shrink:0}
-.badge-vc{background:rgba(255,255,255,.22);color:#fff;font-size:.56rem;font-weight:700;border-radius:3px;padding:1px 4px;flex-shrink:0}
+@media (max-width: 900px){
+  .lineup-pitch{height:480px}
+  .player-card{width:78px}
+  .player-avatar-wrap,.player-avatar{width:52px;height:52px}
+  .lineup-bench-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 
-/* Injury / availability */
-.inj-tag{background:rgba(255,77,109,.2);color:#ff4d6d;border:1px solid rgba(255,77,109,.3);font-size:.56rem;font-weight:700;border-radius:3px;padding:1px 4px;flex-shrink:0}
-
-/* Transfer trend arrows */
-.trending-up{color:#00e87a;font-size:.75rem;font-weight:700}
-.trending-down{color:#ff4d6d;font-size:.75rem;font-weight:700}
-
-/* Insight & other cards */
-.insight-card{background:rgba(0,232,122,.07);border-left:3px solid #00e87a;border-radius:0 8px 8px 0;padding:.65rem .95rem;margin-bottom:.45rem;font-size:.82rem;line-height:1.55}
-.insight-card strong{color:#00e87a}
-.vc-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.62rem .9rem;margin-bottom:.38rem}
-.diff-card{background:rgba(255,215,0,.06);border:1px solid rgba(255,215,0,.2);border-radius:7px;padding:.55rem .85rem;margin-bottom:.35rem}
-
-/* Chat bubbles */
-.chat-user{background:rgba(0,232,122,.1);border:1px solid rgba(0,232,122,.22);border-radius:10px 10px 2px 10px;padding:.55rem .85rem;margin-bottom:.35rem;font-size:.8rem;text-align:right;max-width:82%;margin-left:auto}
-.chat-ai{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:10px 10px 10px 2px;padding:.6rem .9rem;margin-bottom:.45rem;font-size:.8rem;max-width:90%;line-height:1.5}
-.cl{font-size:.62rem;color:rgba(0,232,122,.55);margin-bottom:2px}
-.ul{font-size:.62rem;color:rgba(255,255,255,.3);text-align:right;margin-bottom:2px}
-
-/* Budget bar */
-.budget-bar{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:.65rem .9rem;font-size:.78rem;margin-top:.5rem}
-
-/* Last-updated pill */
-.updated-pill{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:2px 10px;font-size:.65rem;color:rgba(255,255,255,.4)}
-
-/* Buttons */
-div.stButton>button{background:linear-gradient(135deg,#00e87a,#00b85e)!important;color:#1c0021!important;font-weight:700!important;border:none!important;border-radius:8px!important;font-family:'Bebas Neue',sans-serif!important;letter-spacing:1px!important;font-size:1rem!important;padding:.5rem 1.4rem!important}
-div.stButton>button:hover{filter:brightness(1.08)}
-
-.stSelectbox>div>div{background:rgba(255,255,255,.06)!important;border-color:rgba(255,255,255,.15)!important;color:#e8e0f0!important}
-.stTextInput>div>div>input{background:rgba(255,255,255,.06)!important;border-color:rgba(255,255,255,.15)!important;color:#e8e0f0!important;border-radius:8px!important}
-.stSlider [data-testid="stSlider"]{color:#00e87a!important}
-
-div[data-testid="stMetricValue"]{color:#00e87a!important}
+@media (max-width: 640px){
+  .lineup-pitch{height:440px}
+  .player-card{width:70px}
+  .player-meta{padding:6px 6px 7px;border-radius:12px}
+  .player-name,.player-points,.bench-name,.bench-points{font-size:10px}
+}
 </style>
 """, unsafe_allow_html=True)
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -465,69 +656,57 @@ with tab_squad:
         st.markdown("<div class='sh'>🏟 Starting XI</div>", unsafe_allow_html=True)
 
         def render_html_pitch(xi_df: pd.DataFrame, bench_df: pd.DataFrame) -> str:
-            """
-            Build an HTML football pitch with player photo avatars.
-            Uses FPL CDN images with UI-Avatars fallback — no matplotlib needed.
-            """
-            pos_groups: dict[str, list] = {"GK": [], "DEF": [], "MID": [], "FWD": []}
-            for _, p in xi_df.iterrows():
-                pos_groups[p["position"]].append(p)
-
-            # Y positions as percentage from top (GK at bottom = high %)
-            y_pct = {"GK": 85, "DEF": 64, "MID": 40, "FWD": 16}
-            border_col = POS_BORDER
-
-            rows_html = ""
-            for pos in ["FWD", "MID", "DEF", "GK"]:
-                players = pos_groups[pos]
-                if not players:
+            row_tops = {"FWD": 18.0, "MID": 39.0, "DEF": 63.0, "GK": 84.0}
+            ordered_positions = ["FWD", "MID", "DEF", "GK"]
+        
+            player_cards = []
+            for position in ordered_positions:
+                players = xi_df[xi_df["position"] == position].sort_values(
+                    by=["predicted_points", "player_name"],
+                    ascending=[False, True],
+                )
+                if players.empty:
                     continue
-                n = len(players)
-                # Distribute evenly across pitch width
-                xs = [int(10 + i * 80 / max(n - 1, 1)) for i in range(n)] if n > 1 else [50]
-                y = y_pct[pos]
-                bc = border_col[pos]
+        
+                left_positions = get_row_positions(len(players))
+                for left_pct, (_, player) in zip(left_positions, players.iterrows()):
+                    player_cards.append(build_player_card(player, left_pct, row_tops[position]))
+        
+            bench_cards = [
+                build_bench_card(player, order)
+                for order, (_, player) in enumerate(bench_df.iterrows(), start=1)
+            ]
+        
+            return f"""
+            <div class="lineup-shell">
+              <div class="lineup-pitch">
+                <div class="pitch-halfway"></div>
+                <div class="pitch-centre-circle"></div>
+                <div class="pitch-centre-spot"></div>
+                <div class="pitch-top-box"></div>
+                <div class="pitch-bottom-box"></div>
+                <div class="pitch-top-six"></div>
+                <div class="pitch-bottom-six"></div>
+                <div class="pitch-top-spot"></div>
+                <div class="pitch-bottom-spot"></div>
+                {''.join(player_cards)}
+              </div>
+              <div class="lineup-bench">
+                <div class="lineup-bench-label">Bench</div>
+                <div class="lineup-bench-grid">
+                  {''.join(bench_cards)}
+                </div>
+              </div>
+            </div>
+            """
 
-                for x, p in zip(xs, players):
-                    img_url, _ = get_player_image_url(p["player_name"])
-                    surname = p["player_name"].split()[-1][:12]
-                    pts_val = f"{p['predicted_points']:.1f}"
-                    is_cap = p.get("is_captain", False)
-                    is_vc  = p.get("is_vice_captain", False)
-                    st_p   = str(p.get("status", "a"))
-                    inj_dot = ""
-                    if st_p == "i":
-                        inj_dot = "<span style='position:absolute;top:2px;left:2px;width:10px;height:10px;background:#ff4d6d;border-radius:50%;border:1px solid #fff;z-index:4'></span>"
-                    elif st_p == "d":
-                        inj_dot = "<span style='position:absolute;top:2px;left:2px;width:10px;height:10px;background:#ffc800;border-radius:50%;border:1px solid #fff;z-index:4'></span>"
-
-                    cap_badge = ""
-                    if is_cap:
-                        cap_badge = "<span style='position:absolute;top:-3px;right:-3px;background:#ffd700;color:#000;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:5;border:1.5px solid #fff'>C</span>"
-                    elif is_vc:
-                        cap_badge = "<span style='position:absolute;top:-3px;right:-3px;background:#aaa;color:#000;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:5;border:1.5px solid #fff'>V</span>"
-
-                    rows_html += f"""
-                    <div style='position:absolute;left:{x}%;top:{y}%;transform:translate(-50%,-50%);text-align:center;z-index:3;width:68px'>
-                      <div style='position:relative;display:inline-block'>
-                        <img src='{img_url}'
-                          onerror="this.src='https://ui-avatars.com/api/?name={surname[:2]}&background=1a1a2e&color=fff&size=128&bold=true&rounded=true'"
-                          style='width:48px;height:48px;border-radius:50%;border:3px solid {bc};object-fit:cover;display:block;background:#1a1a2e'/>
-                        {cap_badge}
-                        {inj_dot}
-                      </div>
-                      <div style='background:rgba(0,0,0,.72);border-radius:4px;margin-top:3px;padding:1px 4px'>
-                        <div style='font-size:10px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:66px'>{surname}</div>
-                        <div style='font-size:10px;font-weight:700;color:{bc}'>{pts_val} pts</div>
-                      </div>
-                    </div>"""
 
             # Bench row
             bench_html = ""
             bench_list = list(bench_df.iterrows())
             for i, (_, bp) in enumerate(bench_list):
                 bx = int(12 + i * 76 / max(len(bench_list) - 1, 1))
-                img_url, _ = get_player_image_url(bp["player_name"])
+                img_url, _ = get_player_image_sources(bp["player_name"])
                 surname = bp["player_name"].split()[-1][:10]
                 bc = border_col[bp["position"]]
                 bench_html += f"""
