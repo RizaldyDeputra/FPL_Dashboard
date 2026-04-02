@@ -6,10 +6,6 @@ FPL AI Optimizer Dashboard  ·  v3 – Live Pipeline Edition
 import json, logging, sys, threading
 from datetime import datetime, timezone
 from pathlib import Path
-from html import escape
-from urllib.parse import quote_plus
-import unicodedata
-
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
@@ -64,124 +60,28 @@ POS_COLORS = {"GK": "#f8d100", "DEF": "#00e87a", "MID": "#01faf9", "FWD": "#ff4d
 POS_BORDER = {"GK": "#f8d100", "DEF": "#00e87a", "MID": "#01faf9", "FWD": "#ff4d6d"}
 
 # Known FPL player IDs for image lookup (extended map for common players)
-PLAYER_IMAGE_LOOKUP = {
-    "raya": 169187, "flekken": 241978, "roefs": 493237, "trippier": 80680,
-    "pedro porro": 241568, "gabriel": 148225, "timber": 493260, "saliba": 223340,
-    "white": 204480, "van dijk": 97032, "robertson": 122798, "tarkowski": 85971,
-    "mykolenko": 463916, "guehi": 223094, "pedro": 241568, "senesi": 464035,
-    "van hecke": 464034, "haaland": 447, "watkins": 216238, "isak": 224005,
-    "bowen": 219847, "thiago": 464100, "wood": 60826, "salah": 118748,
-    "saka": 223085, "palmer": 244723, "mbeumo": 195473, "fernandes": 6021,
-    "rice": 184341, "semenyo": 464041, "rogers": 464043, "wilson": 57892,
-    "anderson": 238718, "garner": 444145, "guimaraes": 219847, "gibbs white": 215966,
+PLAYER_ID_MAP = {
+    "Raya": 169187, "Flekken": 241978, "Roefs": 493237, "Trippier": 80680, "Pedro Porro": 241568,
+    "Gabriel": 148225, "Timber": 493260, "Saliba": 223340, "White": 204480,
+    "Van Dijk": 97032, "Robertson": 122798, "Tarkowski": 85971, "Mykolenko": 463916,
+    "Guéhi": 223094, "Pedro": 241568, "Senesi": 464035, "Van Hecke": 464034,
+    "Haaland": 447,  "Watkins": 216238, "Isak": 224005, "Bowen": 219847,
+    "Thiago": 464100, "Wood": 60826,
+    "Salah": 118748, "Saka": 223085, "Palmer": 244723, "Mbeumo": 195473,
+    "Fernandes": 6021, "Rice": 184341, "Semenyo": 464041, "Rogers": 464043,
+    "Wilson": 57892, "Anderson": 238718, "Garner": 444145,
+    "Guimarães": 219847, "Gibbs-White": 215966,
 }
 
-def normalise_player_key(name: str) -> str:
-    ascii_name = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode("ascii")
-    return " ".join(ascii_name.lower().replace("-", " ").split())
-
-def build_avatar_url(label: str) -> str:
-    parts = [part for part in str(label).split() if part]
-    initials = "".join(part[0] for part in parts[:2]).upper() or "PL"
-    return (
-        "https://ui-avatars.com/api/"
-        f"?name={quote_plus(initials)}"
-        "&background=13202b&color=ffffff&size=128&bold=true&rounded=true"
-    )
-
-def get_player_image_sources(player_name: str) -> tuple[str, str]:
-    parts = [part for part in str(player_name).split() if part]
-    candidates = [str(player_name)]
-    if len(parts) >= 2:
-        candidates.append(" ".join(parts[-2:]))
-    if parts:
-        candidates.append(parts[-1])
-
-    fallback_url = build_avatar_url(player_name)
-    for candidate in candidates:
-        player_id = PLAYER_IMAGE_LOOKUP.get(normalise_player_key(candidate))
-        if player_id:
-            primary_url = (
-                "https://resources.premierleague.com/premierleague/photos/"
-                f"players/250x250/p{player_id}.png"
-            )
-            return primary_url, fallback_url
-
-    return fallback_url, fallback_url
-
-def shorten_player_name(player_name: str, max_chars: int = 12) -> str:
-    parts = [part for part in str(player_name).split() if part]
-    if not parts:
-        return ""
-    preferred = " ".join(parts[-2:]) if len(parts) > 2 and len(parts[-2]) <= 3 else parts[-1]
-    return preferred if len(preferred) <= max_chars else preferred[: max_chars - 1] + "…"
-
-def get_row_positions(count: int) -> list[float]:
-    presets = {
-        1: [50.0],
-        2: [33.0, 67.0],
-        3: [22.0, 50.0, 78.0],
-        4: [15.0, 38.5, 61.5, 85.0],
-        5: [12.0, 31.0, 50.0, 69.0, 88.0],
-    }
-    if count in presets:
-        return presets[count]
-    return [12.0 + (76.0 / max(count - 1, 1)) * idx for idx in range(count)]
-
-def build_player_card(player: pd.Series) -> str:
-    """Render one player card for use inside a .formation-row flex container."""
-    primary_img, fallback_img = get_player_image_sources(player["player_name"])
-    accent = POS_BORDER[player["position"]]
-    display_name = escape(shorten_player_name(player["player_name"]))
-    status = str(player.get("status", "a"))
-
-    role_badge = ""
-    if player.get("is_captain"):
-        role_badge = "<span class='player-role-badge captain'>C</span>"
-    elif player.get("is_vice_captain"):
-        role_badge = "<span class='player-role-badge vice'>V</span>"
-
-    status_badge = ""
-    if status == "i":
-        status_badge = "<span class='player-status-dot unavailable'></span>"
-    elif status in {"d", "s"}:
-        status_badge = "<span class='player-status-dot doubtful'></span>"
-
-    pname = player["player_name"]
-    pts = float(player["predicted_points"])
-    pname_escaped = escape(str(pname))
-    return (
-        f"<div class='player-card'>"
-        f"<div class='player-avatar-wrap' style='--player-accent:{accent}'>"
-        f"<img class='player-avatar' src='{primary_img}' alt='{pname_escaped}' "
-        f"onerror=\"this.onerror=null;this.src='{fallback_img}';\" />"
-        f"{role_badge}{status_badge}"
-        f"</div>"
-        f"<div class='player-meta' style='--player-accent:{accent}'>"
-        f"<span class='player-name'>{display_name}</span>"
-        f"<span class='player-points'>{pts:.1f} pts</span>"
-        f"</div>"
-        f"</div>"
-    )
-
-def build_bench_card(player: pd.Series, order: int) -> str:
-    primary_img, fallback_img = get_player_image_sources(player["player_name"])
-    accent = POS_BORDER[player["position"]]
-    return f"""
-    <div class="bench-card" style="--player-accent:{accent};">
-      <div class="bench-avatar-wrap">
-        <img
-          class="bench-avatar"
-          src="{primary_img}"
-          alt="{escape(str(player['player_name']))}"
-          onerror="this.onerror=null;this.src='{fallback_img}';"
-        />
-        <span class="bench-order">{order}</span>
-      </div>
-      <div class="bench-name">{escape(shorten_player_name(player["player_name"], max_chars=14))}</div>
-      <div class="bench-points">{float(player["predicted_points"]):.1f} pts</div>
-    </div>
-    """
+def get_player_image_url(player_name: str) -> tuple[str, str]:
+    """Return (img_url, fallback_initials) for a player."""
+    surname = player_name.split()[-1]
+    pid = PLAYER_ID_MAP.get(surname)
+    if pid:
+        return f"https://resources.premierleague.com/premierleague/photos/players/250x250/p{pid}.png", ""
+    # Generic placeholder via UI Avatars (free, no API key)
+    initials = "".join(w[0] for w in player_name.split()[:2]).upper()
+    return f"https://ui-avatars.com/api/?name={initials}&background=1a1a2e&color=fff&size=128&bold=true&rounded=true", initials
 
 def fmt_formation(raw: str) -> str:
     """Convert '1-4-4-2' → '4-4-2' (remove GK from display)."""
@@ -197,313 +97,94 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&display=swap');
 
-:root{
-  --bg-start:#1c0021;
-  --bg-end:#2d003a;
-  --text-main:#e8e0f0;
-  --text-soft:rgba(232,224,240,.72);
-  --lineup-glass:rgba(8,14,22,.32);
-  --pitch-line:rgba(255,255,255,.22);
-  --pitch-shadow:0 20px 45px rgba(0,0,0,.28);
-  --g:#00e87a;
-  --gold:#ffd700;
-  --rd:#ff4d6d;
-}
+:root{--g:#00e87a;--gold:#ffd700;--rd:#ff4d6d}
 
-html, body {
-  font-family:'DM Sans',sans-serif;
-  background:var(--bg-start);
-  color:var(--text-main);
-}
+html,body,[class*="css"]{font-family:'DM Sans',sans-serif!important;background:#1c0021!important;color:#e8e0f0!important}
+.stApp{background:linear-gradient(160deg,#1c0021 0%,#2d003a 100%)!important}
 
-.stApp,
-[data-testid="stAppViewContainer"]{
-  background:linear-gradient(160deg,var(--bg-start) 0%,var(--bg-end) 100%);
-  color:var(--text-main);
-}
+section[data-testid="stSidebar"]{background:rgba(28,0,33,.98)!important;border-right:1px solid rgba(0,232,122,.15)!important}
+section[data-testid="stSidebar"] *{color:#e8e0f0!important}
+section[data-testid="stSidebar"] select{background:rgba(255,255,255,.08)!important}
 
-.stApp,
-.stApp p,
-.stApp span,
-.stApp label,
-.stApp input,
-.stApp button,
-.stApp select{
-  font-family:'DM Sans',sans-serif;
-}
+h1,h2,h3{font-family:'Bebas Neue',sans-serif!important;letter-spacing:2px;color:#e8e0f0!important}
 
-h1,h2,h3{
-  font-family:'Bebas Neue',sans-serif!important;
-  letter-spacing:2px;
-  color:var(--text-main)!important;
-}
+/* KPI cards */
+.kpi-card{background:rgba(255,255,255,.06);border:1px solid rgba(0,232,122,.22);border-radius:12px;padding:1rem 1.2rem;text-align:center}
+.kpi-label{font-size:.65rem;color:rgba(255,255,255,.42);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.kpi-value{font-family:'Bebas Neue',sans-serif;font-size:1.7rem;color:#00e87a;line-height:1}
+.kpi-value-sm{font-family:'Bebas Neue',sans-serif;font-size:1.05rem;color:#00e87a;line-height:1.2}
+.kpi-sub{font-size:.6rem;color:rgba(255,255,255,.3);margin-top:3px}
 
-section[data-testid="stSidebar"]{
-  background:rgba(28,0,33,.98)!important;
-  border-right:1px solid rgba(0,232,122,.15)!important;
-}
+/* Live status badge */
+.status-badge{display:inline-flex;align-items:center;gap:6px;border-radius:20px;padding:4px 12px;font-size:.7rem;font-weight:500;letter-spacing:.3px;margin-bottom:.4rem}
+.status-live{background:rgba(0,232,122,.1);border:1px solid rgba(0,232,122,.3);color:#00e87a}
+.status-stale{background:rgba(255,200,0,.08);border:1px solid rgba(255,200,0,.25);color:#ffc800}
+.status-error{background:rgba(255,77,109,.08);border:1px solid rgba(255,77,109,.25);color:#ff4d6d}
+.dot-pulse{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot-live{background:#00e87a;animation:pulse-g 2s infinite}
+.dot-stale{background:#ffc800}
+.dot-error{background:#ff4d6d}
+@keyframes pulse-g{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,232,122,.4)}50%{opacity:.7;box-shadow:0 0 0 4px rgba(0,232,122,0)}}
 
-section[data-testid="stSidebar"] *{
-  color:var(--text-main)!important;
-}
+/* Pipeline status box */
+.pipeline-box{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:.7rem .9rem;font-size:.73rem;color:rgba(255,255,255,.5);line-height:1.8}
+.pipeline-box strong{color:rgba(255,255,255,.7)}
 
-.lineup-shell{width:100%;font-family:'DM Sans',sans-serif}
+/* Section headers */
+.sh{font-family:'Bebas Neue',sans-serif;font-size:.95rem;letter-spacing:2px;color:rgba(255,255,255,.65);margin-bottom:.6rem}
 
-/* ── Pitch container — Flexbox column, no fixed height ── */
-.lineup-pitch{
-  width:100%;
-  display:flex;
-  flex-direction:column;
-  justify-content:space-between;
-  gap:0;
-  padding:16px 8px;
-  border-radius:16px;
-  border:1px solid rgba(255,255,255,.18);
-  background:linear-gradient(180deg,#0b5c26 0%,#197236 40%,#197236 60%,#0b5c26 100%);
-  box-shadow:0 16px 40px rgba(0,0,0,.35);
-  position:relative;
-  overflow:hidden;
-}
+/* Player rows */
+.player-row{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:.45rem .8rem;margin-bottom:.28rem;display:flex;align-items:center;gap:.45rem;font-size:.82rem}
+.player-row:hover{border-color:rgba(0,232,122,.28);background:rgba(0,232,122,.04);cursor:default}
+.bench-row{background:rgba(255,255,255,.025);border:1px dashed rgba(255,255,255,.1);border-radius:8px;padding:.38rem .75rem;margin-bottom:.22rem;display:flex;align-items:center;gap:.45rem;font-size:.79rem;color:rgba(255,255,255,.62)}
 
-/* Pitch stripe texture overlay */
-.lineup-pitch::after{
-  content:'';
-  position:absolute;
-  inset:0;
-  background:repeating-linear-gradient(
-    180deg,
-    rgba(255,255,255,.025) 0px,
-    rgba(255,255,255,.025) 44px,
-    transparent 44px,
-    transparent 88px
-  );
-  pointer-events:none;
-  z-index:0;
-}
+/* Position tags */
+.tag{font-size:.58rem;font-weight:700;padding:2px 5px;border-radius:3px;min-width:28px;text-align:center;flex-shrink:0}
+.tag-GK{background:#f8d100;color:#000}
+.tag-DEF{background:#00e87a;color:#000}
+.tag-MID{background:#01faf9;color:#000}
+.tag-FWD{background:#ff4d6d;color:#fff}
 
-/* ── Pitch markings (decorative, don't affect layout) ── */
-.pitch-markings{
-  position:absolute;
-  inset:0;
-  pointer-events:none;
-  z-index:1;
-}
-.pitch-outline{
-  position:absolute;
-  inset:10px;
-  border:1.5px solid rgba(255,255,255,.25);
-  border-radius:10px;
-}
-.pitch-halfway{
-  position:absolute;
-  left:10px;right:10px;
-  top:50%;height:1.5px;
-  background:rgba(255,255,255,.25);
-  transform:translateY(-50%);
-}
-.pitch-centre-circle{
-  position:absolute;
-  left:50%;top:50%;
-  width:96px;height:96px;
-  transform:translate(-50%,-50%);
-  border:1.5px solid rgba(255,255,255,.25);
-  border-radius:50%;
-}
-.pitch-centre-dot{
-  position:absolute;
-  left:50%;top:50%;
-  width:6px;height:6px;
-  transform:translate(-50%,-50%);
-  background:rgba(255,255,255,.4);
-  border-radius:50%;
-}
-.pitch-top-box{
-  position:absolute;
-  left:50%;top:10px;
-  width:220px;height:72px;
-  transform:translateX(-50%);
-  border:1.5px solid rgba(255,255,255,.22);
-  border-top:none;
-  border-radius:0 0 8px 8px;
-}
-.pitch-bottom-box{
-  position:absolute;
-  left:50%;bottom:10px;
-  width:220px;height:72px;
-  transform:translateX(-50%);
-  border:1.5px solid rgba(255,255,255,.22);
-  border-bottom:none;
-  border-radius:8px 8px 0 0;
-}
+/* Captain / VC */
+.badge-cap{background:#ffd700;color:#000;font-size:.56rem;font-weight:700;border-radius:3px;padding:1px 4px;flex-shrink:0}
+.badge-vc{background:rgba(255,255,255,.22);color:#fff;font-size:.56rem;font-weight:700;border-radius:3px;padding:1px 4px;flex-shrink:0}
 
-/* ── Formation row — one per position line ── */
-.formation-row{
-  display:flex;
-  flex-direction:row;
-  justify-content:space-evenly;
-  align-items:center;
-  width:100%;
-  padding:6px 0;
-  position:relative;
-  z-index:2;
-}
+/* Injury / availability */
+.inj-tag{background:rgba(255,77,109,.2);color:#ff4d6d;border:1px solid rgba(255,77,109,.3);font-size:.56rem;font-weight:700;border-radius:3px;padding:1px 4px;flex-shrink:0}
 
-/* ── Player card — Flexbox column, no absolute positioning ── */
-.player-card{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:5px;
-  width:80px;
-  min-width:0;
-  text-align:center;
-  flex-shrink:0;
-}
-.player-avatar-wrap{
-  position:relative;
-  width:54px;height:54px;
-  flex-shrink:0;
-}
-.player-avatar{
-  width:54px;height:54px;
-  border-radius:50%;
-  display:block;
-  object-fit:cover;
-  background:#13202b;
-  border:3px solid var(--player-accent,#fff);
-  box-shadow:0 6px 18px rgba(0,0,0,.45);
-}
-.player-meta{
-  width:100%;
-  padding:5px 6px 6px;
-  border-radius:10px;
-  background:rgba(6,10,16,.78);
-  border:1px solid rgba(255,255,255,.1);
-}
-.player-name{
-  display:block;
-  color:#fff;
-  font-size:10px;
-  font-weight:700;
-  line-height:1.2;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  max-width:78px;
-}
-.player-points{
-  display:block;
-  margin-top:2px;
-  color:var(--player-accent,#fff);
-  font-size:10px;
-  font-weight:800;
-}
-.player-role-badge{
-  position:absolute;
-  right:-3px;top:-3px;
-  width:18px;height:18px;
-  border-radius:50%;
-  display:flex;align-items:center;justify-content:center;
-  font-size:9px;font-weight:800;
-  color:#091018;
-  border:1.5px solid #fff;
-  z-index:3;
-}
-.player-role-badge.captain{background:var(--gold)}
-.player-role-badge.vice{background:#cdd4df}
-.player-status-dot{
-  position:absolute;
-  left:-2px;top:1px;
-  width:11px;height:11px;
-  border-radius:50%;
-  border:1.5px solid #fff;
-  z-index:3;
-}
-.player-status-dot.doubtful{background:#ffc800}
-.player-status-dot.unavailable{background:var(--rd)}
+/* Transfer trend arrows */
+.trending-up{color:#00e87a;font-size:.75rem;font-weight:700}
+.trending-down{color:#ff4d6d;font-size:.75rem;font-weight:700}
 
-/* ── Bench ── */
-.lineup-bench{
-  margin-top:12px;
-  padding:12px;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,.1);
-  background:rgba(8,14,22,.35);
-}
-.lineup-bench-label{
-  margin-bottom:10px;
-  text-align:center;
-  font-size:10px;
-  letter-spacing:.2em;
-  color:rgba(255,255,255,.45);
-  text-transform:uppercase;
-}
-.lineup-bench-grid{
-  display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
-  gap:8px;
-}
-.bench-card{
-  min-width:0;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:6px;
-  padding:8px 6px;
-  border-radius:12px;
-  background:rgba(255,255,255,.04);
-  border:1px solid rgba(255,255,255,.08);
-}
-.bench-avatar-wrap{position:relative;width:42px;height:42px}
-.bench-avatar{
-  width:42px;height:42px;
-  border-radius:50%;
-  object-fit:cover;
-  display:block;
-  opacity:.85;
-  background:#101820;
-  border:2.5px solid var(--player-accent,#fff);
-}
-.bench-order{
-  position:absolute;
-  left:-4px;top:-4px;
-  width:16px;height:16px;
-  border-radius:50%;
-  display:flex;align-items:center;justify-content:center;
-  font-size:8px;font-weight:800;
-  color:#fff;
-  background:rgba(8,12,18,.85);
-  border:1px solid rgba(255,255,255,.18);
-}
-.bench-name{
-  width:100%;
-  text-align:center;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  color:rgba(232,224,240,.72);
-  font-size:10px;font-weight:600;
-}
-.bench-points{
-  width:100%;
-  text-align:center;
-  color:var(--player-accent,#fff);
-  font-size:10px;font-weight:800;
-}
+/* Insight & other cards */
+.insight-card{background:rgba(0,232,122,.07);border-left:3px solid #00e87a;border-radius:0 8px 8px 0;padding:.65rem .95rem;margin-bottom:.45rem;font-size:.82rem;line-height:1.55}
+.insight-card strong{color:#00e87a}
+.vc-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.62rem .9rem;margin-bottom:.38rem}
+.diff-card{background:rgba(255,215,0,.06);border:1px solid rgba(255,215,0,.2);border-radius:7px;padding:.55rem .85rem;margin-bottom:.35rem}
 
-@media(max-width:900px){
-  .player-card{width:68px}
-  .player-avatar-wrap,.player-avatar{width:46px;height:46px}
-  .lineup-bench-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-}
-@media(max-width:640px){
-  .player-card{width:58px}
-  .player-avatar-wrap,.player-avatar{width:40px;height:40px}
-  .player-name,.player-points,.bench-name,.bench-points{font-size:9px}
-}
+/* Chat bubbles */
+.chat-user{background:rgba(0,232,122,.1);border:1px solid rgba(0,232,122,.22);border-radius:10px 10px 2px 10px;padding:.55rem .85rem;margin-bottom:.35rem;font-size:.8rem;text-align:right;max-width:82%;margin-left:auto}
+.chat-ai{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:10px 10px 10px 2px;padding:.6rem .9rem;margin-bottom:.45rem;font-size:.8rem;max-width:90%;line-height:1.5}
+.cl{font-size:.62rem;color:rgba(0,232,122,.55);margin-bottom:2px}
+.ul{font-size:.62rem;color:rgba(255,255,255,.3);text-align:right;margin-bottom:2px}
+
+/* Budget bar */
+.budget-bar{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:.65rem .9rem;font-size:.78rem;margin-top:.5rem}
+
+/* Last-updated pill */
+.updated-pill{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:2px 10px;font-size:.65rem;color:rgba(255,255,255,.4)}
+
+/* Buttons */
+div.stButton>button{background:linear-gradient(135deg,#00e87a,#00b85e)!important;color:#1c0021!important;font-weight:700!important;border:none!important;border-radius:8px!important;font-family:'Bebas Neue',sans-serif!important;letter-spacing:1px!important;font-size:1rem!important;padding:.5rem 1.4rem!important}
+div.stButton>button:hover{filter:brightness(1.08)}
+
+.stSelectbox>div>div{background:rgba(255,255,255,.06)!important;border-color:rgba(255,255,255,.15)!important;color:#e8e0f0!important}
+.stTextInput>div>div>input{background:rgba(255,255,255,.06)!important;border-color:rgba(255,255,255,.15)!important;color:#e8e0f0!important;border-radius:8px!important}
+.stSlider [data-testid="stSlider"]{color:#00e87a!important}
+
+div[data-testid="stMetricValue"]{color:#00e87a!important}
 </style>
 """, unsafe_allow_html=True)
-
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -785,57 +466,103 @@ with tab_squad:
 
         def render_html_pitch(xi_df: pd.DataFrame, bench_df: pd.DataFrame) -> str:
             """
-            Build the lineup using Flexbox rows — one row per position line.
-            No absolute positioning. Works reliably inside Streamlit iframes.
-
-            Layout (top = attack, bottom = GK — attacking direction view):
-              FWD row  → MID row  → DEF row  → GK row
+            Build an HTML football pitch with player photo avatars.
+            Uses FPL CDN images with UI-Avatars fallback — no matplotlib needed.
             """
-            # Build one formation-row per position in attacking order
-            position_order = ["FWD", "MID", "DEF", "GK"]
+            pos_groups: dict[str, list] = {"GK": [], "DEF": [], "MID": [], "FWD": []}
+            for _, p in xi_df.iterrows():
+                pos_groups[p["position"]].append(p)
+
+            # Y positions as percentage from top (GK at bottom = high %)
+            y_pct = {"GK": 85, "DEF": 64, "MID": 40, "FWD": 16}
+            border_col = POS_BORDER
+
             rows_html = ""
-
-            for pos in position_order:
-                players_in_pos = xi_df[xi_df["position"] == pos].sort_values(
-                    by=["predicted_points", "player_name"],
-                    ascending=[False, True],
-                )
-                if players_in_pos.empty:
+            for pos in ["FWD", "MID", "DEF", "GK"]:
+                players = pos_groups[pos]
+                if not players:
                     continue
+                n = len(players)
+                # Distribute evenly across pitch width
+                xs = [int(10 + i * 80 / max(n - 1, 1)) for i in range(n)] if n > 1 else [50]
+                y = y_pct[pos]
+                bc = border_col[pos]
 
-                cards = "".join(build_player_card(row) for _, row in players_in_pos.iterrows())
-                rows_html += f"<div class='formation-row'>{cards}</div>"
+                for x, p in zip(xs, players):
+                    img_url, _ = get_player_image_url(p["player_name"])
+                    surname = p["player_name"].split()[-1][:12]
+                    pts_val = f"{p['predicted_points']:.1f}"
+                    is_cap = p.get("is_captain", False)
+                    is_vc  = p.get("is_vice_captain", False)
+                    st_p   = str(p.get("status", "a"))
+                    inj_dot = ""
+                    if st_p == "i":
+                        inj_dot = "<span style='position:absolute;top:2px;left:2px;width:10px;height:10px;background:#ff4d6d;border-radius:50%;border:1px solid #fff;z-index:4'></span>"
+                    elif st_p == "d":
+                        inj_dot = "<span style='position:absolute;top:2px;left:2px;width:10px;height:10px;background:#ffc800;border-radius:50%;border:1px solid #fff;z-index:4'></span>"
 
-            # Bench cards
-            bench_cards = "".join(
-                build_bench_card(row, order)
-                for order, (_, row) in enumerate(bench_df.iterrows(), start=1)
-            )
+                    cap_badge = ""
+                    if is_cap:
+                        cap_badge = "<span style='position:absolute;top:-3px;right:-3px;background:#ffd700;color:#000;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:5;border:1.5px solid #fff'>C</span>"
+                    elif is_vc:
+                        cap_badge = "<span style='position:absolute;top:-3px;right:-3px;background:#aaa;color:#000;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:5;border:1.5px solid #fff'>V</span>"
 
-            return (
-                "<div class='lineup-shell'>"
-                "<div class='lineup-pitch'>"
-                # Decorative pitch markings (position:absolute, don't affect flex layout)
-                "<div class='pitch-markings' aria-hidden='true'>"
-                "<div class='pitch-outline'></div>"
-                "<div class='pitch-halfway'></div>"
-                "<div class='pitch-centre-circle'></div>"
-                "<div class='pitch-centre-dot'></div>"
-                "<div class='pitch-top-box'></div>"
-                "<div class='pitch-bottom-box'></div>"
-                "</div>"
-                # Player rows (flex children)
-                + rows_html
-                + "</div>"
-                # Bench below the pitch
-                "<div class='lineup-bench'>"
-                "<div class='lineup-bench-label'>Bench</div>"
-                "<div class='lineup-bench-grid'>"
-                + bench_cards
-                + "</div>"
-                "</div>"
-                "</div>"
-            )
+                    rows_html += f"""
+                    <div style='position:absolute;left:{x}%;top:{y}%;transform:translate(-50%,-50%);text-align:center;z-index:3;width:68px'>
+                      <div style='position:relative;display:inline-block'>
+                        <img src='{img_url}'
+                          onerror="this.src='https://ui-avatars.com/api/?name={surname[:2]}&background=1a1a2e&color=fff&size=128&bold=true&rounded=true'"
+                          style='width:48px;height:48px;border-radius:50%;border:3px solid {bc};object-fit:cover;display:block;background:#1a1a2e'/>
+                        {cap_badge}
+                        {inj_dot}
+                      </div>
+                      <div style='background:rgba(0,0,0,.72);border-radius:4px;margin-top:3px;padding:1px 4px'>
+                        <div style='font-size:10px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:66px'>{surname}</div>
+                        <div style='font-size:10px;font-weight:700;color:{bc}'>{pts_val} pts</div>
+                      </div>
+                    </div>"""
+
+            # Bench row
+            bench_html = ""
+            bench_list = list(bench_df.iterrows())
+            for i, (_, bp) in enumerate(bench_list):
+                bx = int(12 + i * 76 / max(len(bench_list) - 1, 1))
+                img_url, _ = get_player_image_url(bp["player_name"])
+                surname = bp["player_name"].split()[-1][:10]
+                bc = border_col[bp["position"]]
+                bench_html += f"""
+                <div style='text-align:center;width:70px'>
+                  <div style='position:relative;display:inline-block'>
+                    <img src='{img_url}'
+                      onerror="this.src='https://ui-avatars.com/api/?name={surname[:2]}&background=222&color=aaa&size=128&bold=true&rounded=true'"
+                      style='width:40px;height:40px;border-radius:50%;border:2.5px solid {bc};object-fit:cover;opacity:.7;background:#111'/>
+                    <span style='position:absolute;top:-3px;left:-3px;background:rgba(0,0,0,.7);color:rgba(255,255,255,.6);font-size:8px;width:13px;height:13px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.2)'>{i}</span>
+                  </div>
+                  <div style='font-size:9px;color:rgba(255,255,255,.65);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:68px'>{surname}</div>
+                  <div style='font-size:9px;color:{bc};font-weight:700'>{bp["predicted_points"]:.1f}</div>
+                </div>"""
+
+            html = f"""
+            <div style='background:linear-gradient(180deg,#0f5c25 0%,#1a7a35 40%,#1a7a35 60%,#0f5c25 100%);
+                        border-radius:10px;padding:10px;position:relative;overflow:hidden;
+                        min-height:460px;border:2px solid rgba(255,255,255,.15)'>
+              <!-- Pitch markings -->
+              <div style='position:absolute;inset:10px;border:1.5px solid rgba(255,255,255,.25);border-radius:6px;pointer-events:none'></div>
+              <div style='position:absolute;left:50%;top:0;bottom:0;width:1.5px;background:rgba(255,255,255,.2);transform:translateX(-50%);pointer-events:none'></div>
+              <div style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:90px;height:90px;border-radius:50%;border:1.5px solid rgba(255,255,255,.2);pointer-events:none'></div>
+              <div style='position:absolute;top:10px;left:50%;transform:translateX(-50%);width:200px;height:55px;border:1.5px solid rgba(255,255,255,.2);border-top:none;pointer-events:none'></div>
+              <div style='position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:200px;height:55px;border:1.5px solid rgba(255,255,255,.2);border-bottom:none;pointer-events:none'></div>
+              {rows_html}
+            </div>
+            <!-- Bench -->
+            <div style='background:rgba(0,0,0,.35);border-radius:8px;margin-top:8px;padding:10px 6px;
+                        border:1px solid rgba(255,255,255,.1)'>
+              <div style='font-size:9px;color:rgba(255,255,255,.35);text-align:center;letter-spacing:2px;margin-bottom:8px;font-family:monospace'>BENCH</div>
+              <div style='display:flex;justify-content:space-around;align-items:flex-start'>
+                {bench_html}
+              </div>
+            </div>"""
+            return html
 
         pitch_html = render_html_pitch(xi, bench)
         st.markdown(pitch_html, unsafe_allow_html=True)
