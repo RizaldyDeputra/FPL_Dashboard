@@ -146,7 +146,7 @@ def build_player_card(player: pd.Series, left_pct: float, top_pct: float) -> str
     elif status in {"d", "s"}:
         status_badge = "<span class='player-status-dot doubtful'></span>"
 
-    return f""
+    return f"""
     <div class="player-card" style="left:{left_pct:.1f}%;top:{top_pct:.1f}%;">
       <div class="player-card-inner">
         <div class="player-avatar-wrap" style="--player-accent:{accent};">
@@ -165,12 +165,12 @@ def build_player_card(player: pd.Series, left_pct: float, top_pct: float) -> str
         </div>
       </div>
     </div>
-    ""
+    """
 
 def build_bench_card(player: pd.Series, order: int) -> str:
     primary_img, fallback_img = get_player_image_sources(player["player_name"])
     accent = POS_BORDER[player["position"]]
-    return f""
+    return f"""
     <div class="bench-card" style="--player-accent:{accent};">
       <div class="bench-avatar-wrap">
         <img
@@ -184,7 +184,7 @@ def build_bench_card(player: pd.Series, order: int) -> str:
       <div class="bench-name">{escape(shorten_player_name(player["player_name"], max_chars=14))}</div>
       <div class="bench-points">{float(player["predicted_points"]):.1f} pts</div>
     </div>
-    ""
+    """
 
 def fmt_formation(raw: str) -> str:
     """Convert '1-4-4-2' → '4-4-2' (remove GK from display)."""
