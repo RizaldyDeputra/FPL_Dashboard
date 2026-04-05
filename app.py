@@ -466,105 +466,159 @@ with tab_squad:
 
         def render_html_pitch(xi_df: pd.DataFrame, bench_df: pd.DataFrame) -> str:
             """
-            Build an HTML football pitch with player photo avatars.
-            Uses FPL CDN images with UI-Avatars fallback — no matplotlib needed.
+            Flexbox row-based pitch layout.
+            RULES:
+              - No HTML comments (<!-- -->) — Streamlit strips content after them
+              - No triple-quoted multiline f-strings — use string concatenation
+              - Player rows use display:flex, not position:absolute
+              - CSS classes defined in <style> block above handle all presentation
             """
+
+            # ── Build player cards per position row ───────────────────────────
+            def player_card(p) -> str:
+                img_url, _ = get_player_image_url(p["player_name"])
+                surname = p["player_name"].split()[-1][:13]
+                bc = POS_BORDER[p["position"]]
+                pts_val = f"{float(p['predicted_points']):.1f}"
+                # Fallback initials for onerror
+                initials = "".join(w[0] for w in p["player_name"].split()[:2]).upper()
+                fb = f"https://ui-avatars.com/api/?name={initials}&background=0d1117&color=fff&size=128&bold=true&rounded=true"
+
+                badge = ""
+                if p.get("is_captain"):
+                    badge = "<span class='pc-badge pc-cap'>C</span>"
+                elif p.get("is_vice_captain"):
+                    badge = "<span class='pc-badge pc-vc'>V</span>"
+
+                dot = ""
+                st_p = str(p.get("status", "a"))
+                if st_p == "i":
+                    dot = "<span class='pc-dot pc-inj'></span>"
+                elif st_p == "d":
+                    dot = "<span class='pc-dot pc-dtd'></span>"
+
+                return (
+                    "<div class='pc'>"
+                    f"<div class='pc-av' style='border-color:{bc}'>"
+                    f"<img src='{img_url}' "
+                    f"onerror=\"this.onerror=null;this.src='{fb}'\" "
+                    f"style='width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;background:#0d1117'/>"
+                    f"{badge}{dot}"
+                    "</div>"
+                    "<div class='pc-info'>"
+                    f"<span class='pc-name'>{surname}</span>"
+                    f"<span class='pc-pts' style='color:{bc}'>{pts_val}</span>"
+                    "</div>"
+                    "</div>"
+                )
+
+            # ── Build bench cards ─────────────────────────────────────────────
+            def bench_card(p, order: int) -> str:
+                img_url, _ = get_player_image_url(p["player_name"])
+                surname = p["player_name"].split()[-1][:11]
+                bc = POS_BORDER[p["position"]]
+                pts_val = f"{float(p['predicted_points']):.1f}"
+                initials = "".join(w[0] for w in p["player_name"].split()[:2]).upper()
+                fb = f"https://ui-avatars.com/api/?name={initials}&background=0d1117&color=888&size=128&bold=true&rounded=true"
+
+                return (
+                    "<div class='bc'>"
+                    f"<div class='bc-av' style='border-color:{bc}'>"
+                    f"<img src='{img_url}' "
+                    f"onerror=\"this.onerror=null;this.src='{fb}'\" "
+                    f"style='width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;background:#0d1117'/>"
+                    f"<span class='bc-ord'>{order}</span>"
+                    "</div>"
+                    f"<span class='bc-name'>{surname}</span>"
+                    f"<span class='bc-pts' style='color:{bc}'>{pts_val}</span>"
+                    "</div>"
+                )
+
+            # ── Assemble formation rows ───────────────────────────────────────
             pos_groups: dict[str, list] = {"GK": [], "DEF": [], "MID": [], "FWD": []}
             for _, p in xi_df.iterrows():
                 pos_groups[p["position"]].append(p)
 
-            # Y positions as percentage from top (GK at bottom = high %)
-            y_pct = {"GK": 85, "DEF": 64, "MID": 40, "FWD": 16}
-            border_col = POS_BORDER
-
-            rows_html = ""
+            rows = ""
             for pos in ["FWD", "MID", "DEF", "GK"]:
                 players = pos_groups[pos]
                 if not players:
                     continue
-                n = len(players)
-                # Distribute evenly across pitch width
-                xs = [int(10 + i * 80 / max(n - 1, 1)) for i in range(n)] if n > 1 else [50]
-                y = y_pct[pos]
-                bc = border_col[pos]
+                cards = "".join(player_card(p) for p in players)
+                rows += f"<div class='prow'>{cards}</div>"
 
-                for x, p in zip(xs, players):
-                    img_url, _ = get_player_image_url(p["player_name"])
-                    surname = p["player_name"].split()[-1][:12]
-                    pts_val = f"{p['predicted_points']:.1f}"
-                    is_cap = p.get("is_captain", False)
-                    is_vc  = p.get("is_vice_captain", False)
-                    st_p   = str(p.get("status", "a"))
-                    inj_dot = ""
-                    if st_p == "i":
-                        inj_dot = "<span style='position:absolute;top:2px;left:2px;width:10px;height:10px;background:#ff4d6d;border-radius:50%;border:1px solid #fff;z-index:4'></span>"
-                    elif st_p == "d":
-                        inj_dot = "<span style='position:absolute;top:2px;left:2px;width:10px;height:10px;background:#ffc800;border-radius:50%;border:1px solid #fff;z-index:4'></span>"
+            bench_cards = "".join(
+                bench_card(p, i + 1)
+                for i, (_, p) in enumerate(bench_df.iterrows())
+            )
 
-                    cap_badge = ""
-                    if is_cap:
-                        cap_badge = "<span style='position:absolute;top:-3px;right:-3px;background:#ffd700;color:#000;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:5;border:1.5px solid #fff'>C</span>"
-                    elif is_vc:
-                        cap_badge = "<span style='position:absolute;top:-3px;right:-3px;background:#aaa;color:#000;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:5;border:1.5px solid #fff'>V</span>"
+            # ── Final HTML — NO HTML comments, string concatenation only ──────
+            return (
+                "<div class='fpl-pitch-wrap'>"
+                "<div class='fpl-pitch'>"
+                "<div class='fpl-pitch-lines' aria-hidden='true'>"
+                "<div class='pl-border'></div>"
+                "<div class='pl-halfway'></div>"
+                "<div class='pl-circle'></div>"
+                "<div class='pl-dot'></div>"
+                "<div class='pl-box-top'></div>"
+                "<div class='pl-box-bot'></div>"
+                "</div>"
+                + rows
+                + "</div>"
+                "<div class='fpl-bench'>"
+                "<div class='fpl-bench-label'>BENCH</div>"
+                "<div class='fpl-bench-row'>"
+                + bench_cards
+                + "</div>"
+                "</div>"
+                "</div>"
+            )
 
-                    rows_html += f"""
-                    <div style='position:absolute;left:{x}%;top:{y}%;transform:translate(-50%,-50%);text-align:center;z-index:3;width:68px'>
-                      <div style='position:relative;display:inline-block'>
-                        <img src='{img_url}'
-                          onerror="this.src='https://ui-avatars.com/api/?name={surname[:2]}&background=1a1a2e&color=fff&size=128&bold=true&rounded=true'"
-                          style='width:48px;height:48px;border-radius:50%;border:3px solid {bc};object-fit:cover;display:block;background:#1a1a2e'/>
-                        {cap_badge}
-                        {inj_dot}
-                      </div>
-                      <div style='background:rgba(0,0,0,.72);border-radius:4px;margin-top:3px;padding:1px 4px'>
-                        <div style='font-size:10px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:66px'>{surname}</div>
-                        <div style='font-size:10px;font-weight:700;color:{bc}'>{pts_val} pts</div>
-                      </div>
-                    </div>"""
+        # ── Pitch CSS (scoped, injected once alongside the HTML) ──────────────
+        pitch_css = """
+<style>
+.fpl-pitch-wrap{font-family:'DM Sans',sans-serif;width:100%}
+.fpl-pitch{
+  width:100%;display:flex;flex-direction:column;justify-content:space-evenly;
+  gap:4px;padding:14px 8px;border-radius:14px;position:relative;overflow:hidden;
+  background:linear-gradient(180deg,#0b5c24 0%,#177032 48%,#177032 52%,#0b5c24 100%);
+  border:1.5px solid rgba(255,255,255,.18);min-height:0;
+}
+.fpl-pitch-lines{position:absolute;inset:0;pointer-events:none;z-index:0}
+.pl-border{position:absolute;inset:10px;border:1.5px solid rgba(255,255,255,.22);border-radius:8px}
+.pl-halfway{position:absolute;left:10px;right:10px;top:50%;height:1.5px;background:rgba(255,255,255,.22)}
+.pl-circle{position:absolute;left:50%;top:50%;width:88px;height:88px;transform:translate(-50%,-50%);border:1.5px solid rgba(255,255,255,.22);border-radius:50%}
+.pl-dot{position:absolute;left:50%;top:50%;width:7px;height:7px;transform:translate(-50%,-50%);background:rgba(255,255,255,.35);border-radius:50%}
+.pl-box-top{position:absolute;left:50%;top:10px;width:180px;height:60px;transform:translateX(-50%);border:1.5px solid rgba(255,255,255,.2);border-top:none;border-radius:0 0 8px 8px}
+.pl-box-bot{position:absolute;left:50%;bottom:10px;width:180px;height:60px;transform:translateX(-50%);border:1.5px solid rgba(255,255,255,.2);border-bottom:none;border-radius:8px 8px 0 0}
 
-            # Bench row
-            bench_html = ""
-            bench_list = list(bench_df.iterrows())
-            for i, (_, bp) in enumerate(bench_list):
-                bx = int(12 + i * 76 / max(len(bench_list) - 1, 1))
-                img_url, _ = get_player_image_url(bp["player_name"])
-                surname = bp["player_name"].split()[-1][:10]
-                bc = border_col[bp["position"]]
-                bench_html += f"""
-                <div style='text-align:center;width:70px'>
-                  <div style='position:relative;display:inline-block'>
-                    <img src='{img_url}'
-                      onerror="this.src='https://ui-avatars.com/api/?name={surname[:2]}&background=222&color=aaa&size=128&bold=true&rounded=true'"
-                      style='width:40px;height:40px;border-radius:50%;border:2.5px solid {bc};object-fit:cover;opacity:.7;background:#111'/>
-                    <span style='position:absolute;top:-3px;left:-3px;background:rgba(0,0,0,.7);color:rgba(255,255,255,.6);font-size:8px;width:13px;height:13px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.2)'>{i}</span>
-                  </div>
-                  <div style='font-size:9px;color:rgba(255,255,255,.65);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:68px'>{surname}</div>
-                  <div style='font-size:9px;color:{bc};font-weight:700'>{bp["predicted_points"]:.1f}</div>
-                </div>"""
+.prow{display:flex;flex-direction:row;justify-content:space-evenly;align-items:center;width:100%;padding:6px 0;position:relative;z-index:2}
 
-            html = f"""
-            <div style='background:linear-gradient(180deg,#0f5c25 0%,#1a7a35 40%,#1a7a35 60%,#0f5c25 100%);
-                        border-radius:10px;padding:10px;position:relative;overflow:hidden;
-                        min-height:460px;border:2px solid rgba(255,255,255,.15)'>
-              <!-- Pitch markings -->
-              <div style='position:absolute;inset:10px;border:1.5px solid rgba(255,255,255,.25);border-radius:6px;pointer-events:none'></div>
-              <div style='position:absolute;left:50%;top:0;bottom:0;width:1.5px;background:rgba(255,255,255,.2);transform:translateX(-50%);pointer-events:none'></div>
-              <div style='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:90px;height:90px;border-radius:50%;border:1.5px solid rgba(255,255,255,.2);pointer-events:none'></div>
-              <div style='position:absolute;top:10px;left:50%;transform:translateX(-50%);width:200px;height:55px;border:1.5px solid rgba(255,255,255,.2);border-top:none;pointer-events:none'></div>
-              <div style='position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:200px;height:55px;border:1.5px solid rgba(255,255,255,.2);border-bottom:none;pointer-events:none'></div>
-              {rows_html}
-            </div>
-            <!-- Bench -->
-            <div style='background:rgba(0,0,0,.35);border-radius:8px;margin-top:8px;padding:10px 6px;
-                        border:1px solid rgba(255,255,255,.1)'>
-              <div style='font-size:9px;color:rgba(255,255,255,.35);text-align:center;letter-spacing:2px;margin-bottom:8px;font-family:monospace'>BENCH</div>
-              <div style='display:flex;justify-content:space-around;align-items:flex-start'>
-                {bench_html}
-              </div>
-            </div>"""
-            return html
+.pc{display:flex;flex-direction:column;align-items:center;gap:5px;width:72px;flex-shrink:0}
+.pc-av{width:52px;height:52px;border-radius:50%;border:3px solid #fff;position:relative;flex-shrink:0;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.pc-badge{position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#000;border:1.5px solid #fff;z-index:3}
+.pc-cap{background:#ffd700}
+.pc-vc{background:#c8d0dc}
+.pc-dot{position:absolute;top:0;left:0;width:12px;height:12px;border-radius:50%;border:1.5px solid #fff;z-index:3}
+.pc-inj{background:#ff4d6d}
+.pc-dtd{background:#ffc800}
+.pc-info{background:rgba(0,0,0,.72);border-radius:6px;padding:3px 6px;width:100%;text-align:center;border:1px solid rgba(255,255,255,.08)}
+.pc-name{display:block;color:#fff;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:68px;line-height:1.3}
+.pc-pts{display:block;font-size:10px;font-weight:800;line-height:1.3}
 
-        pitch_html = render_html_pitch(xi, bench)
+.fpl-bench{margin-top:10px;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:10px 8px}
+.fpl-bench-label{text-align:center;font-size:10px;letter-spacing:.18em;color:rgba(255,255,255,.4);margin-bottom:8px}
+.fpl-bench-row{display:flex;flex-direction:row;justify-content:space-evenly;align-items:flex-start}
+
+.bc{display:flex;flex-direction:column;align-items:center;gap:4px;width:70px;flex-shrink:0}
+.bc-av{width:44px;height:44px;border-radius:50%;border:2.5px solid #fff;position:relative;opacity:.82;flex-shrink:0;box-shadow:0 3px 10px rgba(0,0,0,.4)}
+.bc-ord{position:absolute;top:-4px;left:-4px;width:15px;height:15px;border-radius:50%;background:rgba(8,10,16,.88);border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:rgba(255,255,255,.7)}
+.bc-name{font-size:10px;color:rgba(232,224,240,.7);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:68px;text-align:center}
+.bc-pts{font-size:10px;font-weight:800;text-align:center}
+</style>"""
+
+        pitch_html = pitch_css + render_html_pitch(xi, bench)
         st.markdown(pitch_html, unsafe_allow_html=True)
 
     # ── Player list ────────────────────────────────────────────────────────────
