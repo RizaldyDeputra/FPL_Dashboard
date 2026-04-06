@@ -299,7 +299,7 @@ with st.sidebar:
     st.markdown("<p style='font-size:.7rem;color:rgba(255,255,255,.35);margin-top:0;letter-spacing:.5px'>LIVE SQUAD OPTIMIZER</p>", unsafe_allow_html=True)
 
     status = get_data_status()
-    gw_label = f"GW {status['current_gw']}" if status["current_gw"] else "Pre-Season"
+    gw_label = f"GW {status['current_gw']}" if status["current_gw"] else "Gameweek 32"
 
     # Status badge
     if status["fetched_at"] is None:
