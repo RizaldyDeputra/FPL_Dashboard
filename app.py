@@ -1158,8 +1158,6 @@ with tab_about:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(
             "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:.8rem 1rem;font-size:.78rem;color:rgba(255,255,255,.45);line-height:1.7'>"
-            "<strong style='color:rgba(255,255,255,.6)'>Open source · Free forever</strong><br>"
-            "No paid APIs required. All predictions run locally. AI advisor works without any API keys.<br><br>"
             "Built with: Python · Streamlit · Scikit-learn · SciPy · Official FPL API"
             "</div>",
             unsafe_allow_html=True,
@@ -1171,6 +1169,6 @@ with tab_about:
 # ─────────────────────────────────────────────────────────────────────────────
 st.markdown(
     f"<br><p style='text-align:center;color:rgba(255,255,255,.15);font-size:.68rem'>"
-    f"FPL AI Optimizer · Free & Open Source · ML + Linear Programming · {gw_label}</p>",
+    f"FPL AI Optimizer · ML + Linear Programming · {gw_label}</p>",
     unsafe_allow_html=True,
 )
