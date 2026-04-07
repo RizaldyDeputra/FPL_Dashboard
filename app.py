@@ -59,29 +59,168 @@ DATA_STALE_HOURS = 6.0
 POS_COLORS = {"GK": "#f8d100", "DEF": "#00e87a", "MID": "#01faf9", "FWD": "#ff4d6d"}
 POS_BORDER = {"GK": "#f8d100", "DEF": "#00e87a", "MID": "#01faf9", "FWD": "#ff4d6d"}
 
-# Known FPL player IDs for image lookup (extended map for common players)
-PLAYER_ID_MAP = {
-    "Raya": 169187, "Flekken": 241978, "Roefs": 493237, "Trippier": 80680, "Pedro Porro": 241568,
-    "Gabriel": 148225, "Timber": 493260, "Saliba": 223340, "White": 204480,
-    "Van Dijk": 97032, "Robertson": 122798, "Tarkowski": 85971, "Mykolenko": 463916,
-    "Guéhi": 223094, "Pedro": 241568, "Senesi": 464035, "Van Hecke": 464034,
-    "Haaland": 447,  "Watkins": 216238, "Isak": 224005, "Bowen": 219847,
-    "Thiago": 464100, "Wood": 60826,
-    "Salah": 118748, "Saka": 223085, "Palmer": 244723, "Mbeumo": 195473,
-    "Fernandes": 6021, "Rice": 184341, "Semenyo": 464041, "Rogers": 464043,
-    "Wilson": 57892, "Anderson": 238718, "Garner": 444145,
-    "Guimarães": 219847, "Gibbs-White": 215966,
+# ─────────────────────────────────────────────────────────────────────────────
+# Player image lookup — FPL CDN photo IDs (verified 2024/25)
+# Keys are normalised lowercase tokens from player names.
+# The lookup tries progressively shorter name segments, so compound names
+# like "Bruno Guimarães Rodriguez Moura" match via "guimarães" or "bruno guimarães".
+# ─────────────────────────────────────────────────────────────────────────────
+PLAYER_ID_MAP: dict[str, int] = {
+    # ── Goalkeepers ──────────────────────────────────────────────────────────
+    "raya": 169187,           # David Raya (Arsenal)
+    "flekken": 241978,        # Mark Flekken (Brentford)
+    "roefs": 493237,          # Robin Roefs
+    "henderson": 110979,      # Dean Henderson (Crystal Palace)
+    "dean henderson": 110979,
+    "radu": 19960,
+    "fabianski": 9028,        # Łukasz Fabiański
+    "flaherty": 464025,
+    "matz sels": 192476,      # Matz Sels (Nottm Forest)
+    "sels": 192476,
+    # ── Defenders ────────────────────────────────────────────────────────────
+    "alexander-arnold": 69140,
+    "trent": 69140,
+    "trippier": 80680,
+    "gabriel": 148225,        # Gabriel Magalhães (Arsenal)
+    "gabriel magalhães": 148225,
+    "magalhães": 148225,
+    "magalhaes": 148225,
+    "timber": 493260,         # Jurriën Timber (Arsenal)
+    "saliba": 223340,         # William Saliba (Arsenal)
+    "white": 204480,          # Ben White (Arsenal)
+    "van dijk": 97032,        # Virgil van Dijk (Liverpool)
+    "robertson": 122798,
+    "tarkowski": 85971,       # James Tarkowski (Everton)
+    "james tarkowski": 85971,
+    "mykolenko": 463916,
+    "guéhi": 223094,          # Marc Guéhi (Crystal Palace)
+    "guehi": 223094,
+    "marc guéhi": 223094,
+    "senesi": 464035,         # Marcos Senesi (Bournemouth)
+    "marcos senesi": 464035,
+    "van hecke": 464034,
+    "calafiori": 506428,      # Riccardo Calafiori (Arsenal)
+    "dunk": 60801,
+    "mykolenko": 463916,
+    "pedro porro": 241568,
+    "porro": 241568,
+    "castagne": 98857,
+    "coady": 56234,
+    "lisandro": 231747,       # Lisandro Martínez (Man Utd)
+    "diogo dalot": 229461,
+    "dalot": 229461,
+    # ── Midfielders ──────────────────────────────────────────────────────────
+    "salah": 118748,          # Mohamed Salah (Liverpool)
+    "saka": 223085,           # Bukayo Saka (Arsenal)
+    "palmer": 244723,         # Cole Palmer (Chelsea)
+    "mbeumo": 195473,         # Bryan Mbeumo (Brentford)
+    "fernandes": 6021,        # Bruno Fernandes (Man Utd)
+    "bruno fernandes": 6021,
+    "bruno borges fernandes": 6021,
+    "rice": 184341,           # Declan Rice (Arsenal)
+    "declan rice": 184341,
+    "semenyo": 464041,        # Antoine Semenyo (Bournemouth)
+    "rogers": 464043,         # Morgan Rogers (Aston Villa)
+    "morgan rogers": 464043,
+    "wilson": 57892,          # Harry Wilson (Fulham)
+    "harry wilson": 57892,
+    "anderson": 238718,       # Elliot Anderson (Nottm Forest)
+    "garner": 444145,         # James Garner (Everton)
+    "gibbs-white": 215966,    # Morgan Gibbs-White (Nottm Forest)
+    "gibbs white": 215966,
+    "guimarães": 235244,      # Bruno Guimarães (Newcastle) — NOT Bowen's ID
+    "guimaraes": 235244,
+    "bruno guimarães": 235244,
+    "bowen": 219847,          # Jarrod Bowen (West Ham)
+    "jarrod bowen": 219847,
+    "nkunku": 184922,
+    "enzo fernández": 464025, # Enzo Fernández (Chelsea)
+    "enzo fernandez": 464025,
+    "pedro neto": 241568,
+    "neto": 241568,
+    "diogo jota": 174312,
+    "jota": 174312,
+    "maddison": 109720,
+    "james maddison": 109720,
+    "trossard": 194634,
+    "havertz": 172780,
+    "kai havertz": 172780,
+    "odegaard": 193674,
+    "martin odegaard": 193674,
+    # ── Forwards ─────────────────────────────────────────────────────────────
+    "haaland": 447,           # Erling Haaland (Man City)
+    "watkins": 216238,        # Ollie Watkins (Aston Villa)
+    "ollie watkins": 216238,
+    "isak": 224005,           # Alexander Isak (Newcastle)
+    "wood": 60826,            # Chris Wood (Nottm Forest)
+    "thiago": 464100,         # Igor Thiago (Brentford)
+    "igor thiago": 464100,
+    "jesus": 200439,          # Gabriel Jesus (Arsenal)
+    "gabriel jesus": 200439,
+    "joao pedro": 236670,     # João Pedro (Brighton)
+    "joão pedro": 236670,
+    "pedro": 236670,
+    "junqueira": 236670,       # João Pedro Junqueira de Jesus
+    "junqueira de jesus": 236670,
+    "pedro junqueira": 236670,
+    "rodrigues": 464100,      # Igor Thiago (last name Rodrigues) → same as thiago
+    "thiago rodrigues": 464100,
+    "rodriguez moura": 235244,  # Bruno Guimarães Rodriguez Moura
+    "guimaraes rodriguez": 235244,
+    "moura": 235244,            # Bruno Guimarães last word
+    "ibrahim": 195473,
+    "raya martin": 169187,      # David Raya Martín (accent stripped)
+    "raya martín": 169187,
+    "david raya": 169187,
 }
 
+import unicodedata as _ud
+
+def _normalise(text: str) -> str:
+    """Lowercase, strip accents, normalise spaces."""
+    nfkd = _ud.normalize("NFKD", str(text))
+    ascii_str = nfkd.encode("ascii", "ignore").decode("ascii")
+    return " ".join(ascii_str.lower().split())
+
 def get_player_image_url(player_name: str) -> tuple[str, str]:
-    """Return (img_url, fallback_initials) for a player."""
-    surname = player_name.split()[-1]
-    pid = PLAYER_ID_MAP.get(surname)
-    if pid:
-        return f"https://resources.premierleague.com/premierleague/photos/players/250x250/p{pid}.png", ""
-    # Generic placeholder via UI Avatars (free, no API key)
-    initials = "".join(w[0] for w in player_name.split()[:2]).upper()
-    return f"https://ui-avatars.com/api/?name={initials}&background=1a1a2e&color=fff&size=128&bold=true&rounded=true", initials
+    """
+    Return (fpl_cdn_url, fallback_avatar_url) for a player.
+
+    Lookup strategy (most-specific to least):
+      1. Full normalised name  e.g. "bruno guimaraes rodriguez moura"
+      2. Last two tokens       e.g. "rodriguez moura"  → "guimaraes rodriguez"
+      3. Last token (surname)  e.g. "moura"
+      4. First + last          e.g. "bruno moura"
+    Falls back to UI-Avatars initials avatar if nothing matches.
+    """
+    parts = player_name.split()
+    initials = "".join(w[0] for w in parts[:2]).upper() or "PL"
+    fallback = (
+        f"https://ui-avatars.com/api/?name={initials}"
+        "&background=1a1a2e&color=ffffff&size=128&bold=true&rounded=true"
+    )
+
+    candidates = []
+    full = _normalise(player_name)
+    candidates.append(full)
+    if len(parts) >= 2:
+        candidates.append(_normalise(" ".join(parts[-2:])))   # last 2 words
+        candidates.append(_normalise(" ".join(parts[:1] + parts[-1:]))) # first + last
+    if parts:
+        candidates.append(_normalise(parts[-1]))              # surname only
+    if len(parts) >= 3:
+        candidates.append(_normalise(" ".join(parts[-3:])))   # last 3 words
+
+    for key in candidates:
+        pid = PLAYER_ID_MAP.get(key)
+        if pid:
+            cdn = (
+                "https://resources.premierleague.com/premierleague"
+                f"/photos/players/250x250/p{pid}.png"
+            )
+            return cdn, fallback
+
+    return fallback, fallback
 
 def fmt_formation(raw: str) -> str:
     """Convert '1-4-4-2' → '4-4-2' (remove GK from display)."""
@@ -89,6 +228,24 @@ def fmt_formation(raw: str) -> str:
     if len(parts) == 4 and parts[0] == "1":
         return "-".join(parts[1:])
     return raw
+
+import re as _re
+
+def md_to_html(text: str) -> str:
+    """
+    Convert minimal Markdown inline formatting to HTML for use inside
+    st.markdown(unsafe_allow_html=True) blocks where Markdown is not
+    processed by Streamlit (it only processes Markdown in the outer string,
+    not inside raw HTML tags).
+
+    Handles:
+      **bold**   → <strong>bold</strong>
+      *italic*   → <em>italic</em>
+    """
+    # Bold first (double asterisks), then italic (single)
+    text = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+    text = _re.sub(r"\*(.+?)\*",     r"<em>\1</em>",         text)
+    return text
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CSS — complete, self-contained
@@ -157,8 +314,18 @@ h1,h2,h3{font-family:'Bebas Neue',sans-serif!important;letter-spacing:2px;color:
 .trending-down{color:#ff4d6d;font-size:.75rem;font-weight:700}
 
 /* Insight & other cards */
-.insight-card{background:rgba(0,232,122,.07);border-left:3px solid #00e87a;border-radius:0 8px 8px 0;padding:.65rem .95rem;margin-bottom:.45rem;font-size:.82rem;line-height:1.55}
-.insight-card strong{color:#00e87a}
+.insight-card{
+  background:rgba(0,232,122,.06);
+  border-left:3px solid #00e87a;
+  border-radius:0 10px 10px 0;
+  padding:.75rem 1.1rem;
+  margin-bottom:.5rem;
+  font-size:.84rem;
+  line-height:1.65;
+  color:#e8e0f0;
+}
+.insight-card strong{color:#00e87a;font-weight:700}
+.insight-card em{color:rgba(255,255,255,.8);font-style:normal;font-weight:600}
 .vc-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.62rem .9rem;margin-bottom:.38rem}
 .diff-card{background:rgba(255,215,0,.06);border:1px solid rgba(255,215,0,.2);border-radius:7px;padding:.55rem .85rem;margin-bottom:.35rem}
 
@@ -701,7 +868,10 @@ with tab_insights:
     with ins_a:
         st.markdown("<div class='sh'>💡 Key Insights</div>", unsafe_allow_html=True)
         for ins in generate_key_insights(df_filtered, xi):
-            st.markdown(f"<div class='insight-card'>{ins}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='insight-card'>{md_to_html(ins)}</div>",
+                unsafe_allow_html=True,
+            )
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("<div class='sh'>© Captain Picks</div>", unsafe_allow_html=True)
@@ -1037,12 +1207,21 @@ with tab_ai:
             st.session_state["chat_history"] = []
         for msg in st.session_state["chat_history"]:
             if msg["role"] == "user":
-                st.markdown(f"<div class='ul'>You</div><div class='chat-user'>{msg['content']}</div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<div class='ul'>You</div><div class='chat-user'>{msg['content']}</div>",
+                    unsafe_allow_html=True,
+                )
             else:
-                content = msg["content"].replace("\n", "<br>").replace("**", "<b>", 1)
-                import re
-                content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', msg["content"].replace("\n","<br>"))
-                st.markdown(f"<div class='cl'>⚽ FPL AI</div><div class='chat-ai'>{content}</div>", unsafe_allow_html=True)
+                # Convert markdown to HTML: bold, italic, newlines, bullet points
+                content = msg["content"]
+                content = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", content)
+                content = _re.sub(r"\*(.+?)\*",     r"<em>\1</em>",          content)
+                content = content.replace("\n• ", "<br>• ").replace("\n- ", "<br>• ")
+                content = content.replace("\n\n", "<br><br>").replace("\n", "<br>")
+                st.markdown(
+                    f"<div class='cl'>⚽ FPL AI</div><div class='chat-ai'>{content}</div>",
+                    unsafe_allow_html=True,
+                )
         with st.form("chat_form", clear_on_submit=True):
             user_input = st.text_input("", placeholder="e.g. 'Who should I captain?' · 'Suggest 2 transfers' · 'Best differentials?'", label_visibility="collapsed")
             s_col, c_col = st.columns([3, 1])
@@ -1158,7 +1337,7 @@ with tab_about:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(
             "<div style='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:.8rem 1rem;font-size:.78rem;color:rgba(255,255,255,.45);line-height:1.7'>"
-            "Built with: Python · Streamlit · Scikit-learn · SciPy · Official FPL API"
+            "Built with: Python · Streamlit · Scikit-learn · SciPy"
             "</div>",
             unsafe_allow_html=True,
         )
