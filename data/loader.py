@@ -1,9 +1,3 @@
-"""
-FPL AI Optimizer - Data Loader (v3 - Live + Static)
-====================================================
-Smart loader that prefers live API data, falls back to static CSV.
-Backward-compatible with v1/v2.
-"""
 from __future__ import annotations
 import logging
 from pathlib import Path
@@ -46,16 +40,30 @@ def _normalise(df: pd.DataFrame) -> pd.DataFrame:
         df["position"] = df.get("element_type", pd.Series("MID", index=df.index)).map(pos_map).fillna("MID")
     if "cost" not in df.columns:
         df["cost"] = df["now_cost"] / 10.0 if "now_cost" in df.columns else 5.0
-    defaults = {
-        "goals_scored":0,"assists":0,"clean_sheets":0,"goals_conceded":0,
-        "yellow_cards":0,"red_cards":0,"bonus":0,"bps":0,
-        "ict_index":0.0,"influence":0.0,"creativity":0.0,"threat":0.0,
-        "selected_by_percent":0.0,"form":0.0,"points_per_game":0.0,
-        "transfers_in_event":0,"transfers_out_event":0,"status":"a",
+
+    # ── Apply defaults per column only if column is missing ──────────────────
+    # Numeric defaults
+    numeric_defaults = {
+        "goals_scored": 0, "assists": 0, "clean_sheets": 0, "goals_conceded": 0,
+        "yellow_cards": 0, "red_cards": 0, "bonus": 0, "bps": 0,
+        "ict_index": 0.0, "influence": 0.0, "creativity": 0.0, "threat": 0.0,
+        "selected_by_percent": 0.0, "form": 0.0, "points_per_game": 0.0,
+        "transfers_in_event": 0, "transfers_out_event": 0,
     }
-    for col, val in defaults.items():
+    # String defaults
+    string_defaults = {
+        "status": "a",
+        "news":   "",
+    }
+
+    for col, val in numeric_defaults.items():
         if col not in df.columns:
             df[col] = val
+
+    for col, val in string_defaults.items():
+        if col not in df.columns:
+            df[col] = val
+
     return df
 
 
@@ -63,6 +71,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     safe_min  = df["minutes"].clip(lower=1)
     safe_cost = df["cost"].clip(lower=1)
+
     df["minutes_90s"]     = df["minutes"] / 90
     df["pts_per_90"]      = df["total_points"] / (safe_min / 90)
     df["goals_per_90"]    = df["goals_scored"] / (safe_min / 90)
@@ -73,6 +82,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["ict_ratio"]       = df["ict_index"] / safe_cost
     df["threat_norm"]     = df["threat"] / (safe_min / 90)
     df["creativity_norm"] = df["creativity"] / (safe_min / 90)
+
     df["form_score"] = (
         0.40 * df["pts_per_90"].clip(0, 20) +
         0.20 * df["ict_ratio"].clip(0, 5) +
@@ -80,21 +90,38 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         0.10 * df["cs_rate"].clip(0, 1) +
         0.10 * (1 - df["gc_per_90"].clip(0, 5) / 5)
     )
-    df["value_score"]      = df["total_points"] / safe_cost
-    df["is_differential"]  = (df["selected_by_percent"] < 5.0).astype(int)
+
+    df["value_score"]     = df["total_points"] / safe_cost
+    df["is_differential"] = (df["selected_by_percent"] < 5.0).astype(int)
+
     net = df["transfers_in_event"] - df["transfers_out_event"]
     abs_max = max(float(net.abs().max()), 1.0)
     df["transfer_momentum"] = net / abs_max
-    df.fillna(0, inplace=True)
+
+    # ── FIX: fill NaN column-by-column with a type-appropriate value ─────────
+    # Blanket df.fillna(0) raises TypeError on pandas 2.x when string columns
+    # (status, news, player_name) have dtype=StringDtype/ArrowDtype.
+    for col in df.columns:
+        if df[col].isna().any():
+            try:
+                kind = df[col].dtype.kind  # 'f'=float, 'i'=int, 'u'=uint, 'O'=object/string
+            except AttributeError:
+                kind = "O"
+            if kind in ("f", "i", "u"):
+                df[col] = df[col].fillna(0)
+            else:
+                # String / object / ArrowDtype — fill with empty string
+                df[col] = df[col].fillna("")
+
     return df
 
 
 def get_feature_columns() -> list[str]:
     return [
-        "minutes_90s","pts_per_90","goals_per_90","assists_per_90",
-        "ga_per_90","cs_rate","gc_per_90","ict_ratio",
-        "threat_norm","creativity_norm","form_score",
-        "bonus","bps","selected_by_percent","cost","transfer_momentum",
+        "minutes_90s", "pts_per_90", "goals_per_90", "assists_per_90",
+        "ga_per_90", "cs_rate", "gc_per_90", "ict_ratio",
+        "threat_norm", "creativity_norm", "form_score",
+        "bonus", "bps", "selected_by_percent", "cost", "transfer_momentum",
     ]
 
 
