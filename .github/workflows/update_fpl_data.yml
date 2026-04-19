@@ -1,14 +1,10 @@
 name: FPL Data Pipeline
 
 on:
-  # ── Run automatically ────────────────────────────────────────────────────────
   schedule:
-    # Every day at 06:00 UTC  (before most FPL deadlines)
-    - cron: "0 6 * * *"
-    # Also run at 14:00 UTC to catch afternoon deadline days
-    - cron: "0 14 * * 2"   # Tuesdays only (common deadline day)
+    - cron: "0 6 * * *"      # Daily at 06:00 UTC
+    - cron: "0 14 * * 2"     # Tuesdays 14:00 UTC (common deadline day)
 
-  # ── Run manually from GitHub Actions tab ────────────────────────────────────
   workflow_dispatch:
     inputs:
       force:
@@ -18,6 +14,9 @@ on:
         type: choice
         options: ["false", "true"]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # opt-in to Node 24 now
+
 jobs:
   update-fpl-data:
     name: Fetch & Predict
@@ -25,33 +24,28 @@ jobs:
     timeout-minutes: 15
 
     permissions:
-      contents: write       # needed to commit updated CSV back to repo
+      contents: write
 
     steps:
-      # ── 1. Checkout ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 2. Set up Python ───────────────────────────────────────────────────
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      # ── 3. Install dependencies ────────────────────────────────────────────
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ── 4. Ensure runtime directories exist ───────────────────────────────
       - name: Create runtime directories
         run: |
           mkdir -p data/raw data/processed data/cache data/predictions logs
           mkdir -p models/saved
 
-      # ── 5. Run the data pipeline ──────────────────────────────────────────
       - name: Run FPL data pipeline
         run: |
           FORCE_FLAG=""
@@ -62,18 +56,15 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
 
-      # ── 6. Commit updated data back to repo ───────────────────────────────
       - name: Commit updated player data
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "FPL Pipeline Bot"
 
-          # Stage only the processed data files (not raw JSON or logs)
           git add data/processed/players.csv || true
           git add data/cache/metadata.json   || true
           git add data/predictions/latest.csv || true
 
-          # Only commit if there are actual changes
           if git diff --staged --quiet; then
             echo "No data changes to commit."
           else
@@ -89,13 +80,12 @@ jobs:
             git push
           fi
 
-      # ── 7. Summary ────────────────────────────────────────────────────────
       - name: Pipeline summary
         run: |
           echo "## FPL Pipeline Run" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           python -c "
-          import json, os
+          import json
           try:
               m = json.load(open('data/cache/metadata.json'))
               print(f'- **Gameweek:** GW{m.get(\"current_gw\", \"?\")}')
