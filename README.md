@@ -68,51 +68,6 @@ fixtures/                │   └─ data/raw/bootstrap_static.json
 
 ---
 
-## Quick Start
-
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. (Optional) set Anthropic key for AI advisor
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# 3. Run the dashboard
-streamlit run app.py
-```
-
----
-
-## Updating Data
-
-### Manual
-```bash
-python update_data.py            # auto (only if stale)
-python update_data.py --force    # force full refresh
-python update_data.py --check-only   # status check
-```
-
-### Automated
-
-**cron (Linux/macOS)** — run at 06:00 daily:
-```bash
-crontab -e
-# Add this line:
-0 6 * * * cd /path/to/fpl_optimizer && python update_data.py >> logs/cron.log 2>&1
-```
-
-**Windows Task Scheduler**:
-```cmd
-schtasks /create /tn "FPL Update" /tr "python C:\path\update_data.py" /sc DAILY /st 06:00
-```
-
-**APScheduler (long-running process)**:
-```bash
-pip install apscheduler
-python update_data.py --schedule --interval 6
-```
-
----
 
 ## ML Pipeline
 
