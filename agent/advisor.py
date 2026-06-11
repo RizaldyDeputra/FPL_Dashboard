@@ -1,27 +1,8 @@
-"""
-FPL AI Optimizer - AI Agent (RAG-powered)
-==========================================
-Provides natural-language explanations and recommendations
-by injecting structured player & team data as context into
-the Anthropic Claude API.
-
-Features
---------
-* explain_selection(player_name) – why a player was picked
-* recommend_captain(selected_df) – captain/vice pick rationale
-* suggest_transfers(selected_df, all_df) – transfer ideas
-* answer(question, selected_df, all_df) – free-form Q&A
-"""
-
 from __future__ import annotations
 import json
 import requests
 import pandas as pd
 
-
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-MODEL             = "claude-sonnet-4-20250514"
-MAX_TOKENS        = 700
 
 
 # ---------------------------------------------------------------------------
@@ -29,7 +10,6 @@ MAX_TOKENS        = 700
 # ---------------------------------------------------------------------------
 
 def _build_context(selected: pd.DataFrame, all_players: pd.DataFrame | None = None) -> str:
-    """Build a compact text context for the LLM."""
     rows = []
     for _, p in selected.iterrows():
         cap_tag = " [CAPTAIN]" if p.get("is_captain") else ""
@@ -67,7 +47,6 @@ def _build_context(selected: pd.DataFrame, all_players: pd.DataFrame | None = No
 # ---------------------------------------------------------------------------
 
 def _call_llm(system_prompt: str, user_message: str) -> str:
-    """Call the Anthropic messages API and return the text response."""
     payload = {
         "model": MODEL,
         "max_tokens": MAX_TOKENS,
