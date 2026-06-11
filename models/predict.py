@@ -1,6 +1,4 @@
 """
-FPL AI Optimizer - Fast Predictor
-===================================
 Generates predictions using the cached trained model.
 Falls back to retraining if no valid cache is found.
 
