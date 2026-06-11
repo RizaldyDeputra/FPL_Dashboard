@@ -1,6 +1,4 @@
 """
-cloud_startup.py
-================
 Called once at app startup (imported by app.py) to ensure data is available
 on Streamlit Community Cloud where the repo starts fresh with no live data.
 
@@ -11,7 +9,6 @@ Flow
 3. If API unreachable → raise a clear user-facing error
 4. Log result to Streamlit (visible in cloud logs)
 
-This is NOT needed locally if you run update_data.py manually first.
 """
 
 from __future__ import annotations
