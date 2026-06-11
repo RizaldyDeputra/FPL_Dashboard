@@ -1,6 +1,6 @@
-# ⚽ FPL AI Optimizer  ·  v3 — Live Pipeline Edition
+# FPL AI-Dashboard  
 
-A production-grade Fantasy Premier League assistant with a **live data pipeline**, **ML predictions**, **LP squad optimization**, and an **AI chat advisor**.
+A production-grade Fantasy Premier League assistant with a **live data**, **ML predictions**, **squad optimization**, and an **AI advisor**.
 
 ---
 
