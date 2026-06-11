@@ -1,4 +1,4 @@
-# ─── Secrets — NEVER commit ───────────────────────────────────────────────────
+# ─── Secrets ───────────────────────────────────────────────────
 .streamlit/secrets.toml
 .env
 *.env
@@ -23,11 +23,10 @@ env/
 .env/
 ENV/
 
-# ─── ML model pickle cache ────────────────────────────────────────────────────
-# Models are re-trained at runtime — no need to commit large binaries
+# ─── ML ────────────────────────────────────────────────────
 models/saved/predictor.pkl
 
-# ─── Live data (auto-fetched from FPL API at runtime) ────────────────────────
+# ─── Live data ────────────────────────
 data/raw/
 data/processed/
 data/cache/
