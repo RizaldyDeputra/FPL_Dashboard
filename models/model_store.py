@@ -1,6 +1,4 @@
 """
-FPL AI Optimizer - Model Persistence
-=====================================
 Saves and loads trained FPLPredictor instances using pickle,
 avoiding expensive retraining on every dashboard refresh.
 
